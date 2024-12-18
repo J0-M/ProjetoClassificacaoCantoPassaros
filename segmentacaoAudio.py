@@ -3,9 +3,11 @@ import pandas as pd
 import soundfile as sf
 from joblib import Parallel
 import os
+import numpy as npy
 
 audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
 folderDestinyPath = "C:\\Users\\Pichau\\Desktop\\audiosSegmentados"
+folderFeaturesPath = "C:\\Users\\Pichau\\Desktop\\texturaAudios"
 pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
 
 def cutAudio(audio, startTime, endTime):
@@ -29,12 +31,26 @@ def readCSV(CSV):
         print("Arquivo Vazio")
 #############
 
+def getFeatures(audio, sr):
+    centroid = librosa.feature.spectral_centroid(y=audio, sr=sr).mean()
+    contrast = librosa.feature.spectral_contrast(y=audio, sr=sr).mean()
+    flatness = librosa.feature.spectral_flatness(y=audio).mean()
+    rolloff = librosa.feature.spectral_rolloff(y=audio, sr=sr).mean()
+    zeroCrossRate = librosa.feature.zero_crossing_rate(y=audio).mean()
+    rms = librosa.feature.rms(y=audio).mean()
+
+    mfcc = librosa.feature.mfcc(y=audio, sr=sr)
+    mfcc = npy.mean(mfcc, axis=1)
+
+    return(centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc)
+####################
+
 def main():
     df = readCSV(pathCSV)
     lastAudio = ""
     cutId = 0
 
-    df_limite = df.iloc[0:18]
+    df_limite = df.iloc[0:21]
 
     for index, line in df_limite.iterrows():
         audioPath = line["soundscape_file"]
@@ -51,16 +67,29 @@ def main():
                 cutId = 0
 
             audio = os.path.join(audioSourcePath, audioPath)
-            
             outputFileName = f"{audioPath}_{cutId}.wav"
             outputPath = os.path.join(folderDestinyPath, outputFileName)
 
             segmentedAudio, sr = cutAudio(audio, startTime, endTime)
-
             sf.write(outputPath, segmentedAudio, sr)
+
+            centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc = getFeatures(segmentedAudio, sr)
+            textures = {
+                "centroid": centroid,
+                "contrast": contrast,
+                "flatness": flatness,
+                "rolloff": rolloff,
+                "zeroCrossRate": zeroCrossRate,
+                "rms": rms,
+                "mfcc": mfcc.tolist()
+            }
+            npyFileName = f"{audioPath}_{cutId}_features.npy"
+            npyPath = os.path.join(folderFeaturesPath, npyFileName)
+            npy.save(npyPath, textures)
 
             print(f"linha{index}: audio = {audioPath}, timeIni = {startTime}, timeFim = {endTime}")
             print(f"Segmento Salvo em {outputPath}")
+            print(f"Texturas Salvas em {npyPath}")
         else:
             print(f"linha{index}: Espécie incerta")
 
