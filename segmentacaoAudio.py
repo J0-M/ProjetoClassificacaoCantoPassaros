@@ -1,7 +1,9 @@
 import librosa 
 import pandas as pd
 import soundfile as sf
-from joblib import Parallel
+from joblib import Parallel, delayed
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Manager
 import os
 import numpy as npy
 
@@ -11,7 +13,7 @@ folderFeaturesPath = "C:\\Users\\Pichau\\Desktop\\texturaAudios"
 pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
 
 def cutAudio(audio, startTime, endTime):
-    audio, sr = librosa.load(audio, sr=None)
+    audio, sr = librosa.load(audio, sr=22000)
 
     timeIni = int(sr * startTime)
     timeEnd = int(sr * endTime)
@@ -45,53 +47,61 @@ def getFeatures(audio, sr):
     return(centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc)
 ####################
 
+def process_audio(index, line, lastAudioDict):
+    audioPath = line["soundscape_file"]
+    roiLabel = line["roi_label"]
+    startTime = line["roi_start"]
+    endTime = line["roi_end"]
+    confidence = line["roi_label_confidence"]
+
+    if roiLabel == "NOT_IDENTIFIED" or confidence == "uncertain":
+        print(f"linha {index}: Espécie incerta")
+        return None
+
+    cutId = lastAudioDict.get(audioPath, -1) + 1
+    lastAudioDict[audioPath] = cutId
+    
+    audio = os.path.join(audioSourcePath, audioPath)
+    outputFileName = f"{audioPath}_{cutId}.wav"
+    outputPath = os.path.join(folderDestinyPath, outputFileName)
+
+    segmentedAudio, sr = cutAudio(audio, startTime, endTime)
+    sf.write(outputPath, segmentedAudio, sr)
+
+    centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc = getFeatures(segmentedAudio, sr)
+    textures = {
+        "centroid": centroid,
+        "contrast": contrast,
+        "flatness": flatness,
+        "rolloff": rolloff,
+        "zeroCrossRate": zeroCrossRate,
+        "rms": rms,
+        "mfcc": mfcc.tolist()
+    }
+
+    npyFileName = f"{audioPath}_{cutId}_features.npy"
+    npyPath = os.path.join(folderFeaturesPath, npyFileName)
+    npy.save(npyPath, textures)
+    
+    print(f"linha{index}: audio = {audioPath}, timeIni = {startTime}, timeFim = {endTime}")
+    print(f"Segmento Salvo em {outputPath}")
+    print(f"Texturas Salvas em {npyPath}")
+
+####################
+
 def main():
     df = readCSV(pathCSV)
-    lastAudio = ""
-    cutId = 0
+    
+    with Manager() as manager:
+        lastAudioDict = manager.dict()
 
-    df_limite = df.iloc[0:21]
+        df_limite = df.iloc[0:51]
 
-    for index, line in df_limite.iterrows():
-        audioPath = line["soundscape_file"]
-        roiLabel = line["roi_label"]
-        startTime = line["roi_start"]
-        endTime = line["roi_end"]
-        confidence = line["roi_label_confidence"]
-
-        if(roiLabel != "NOT_IDENTIFIED" and confidence != "uncertain"):
-            if(audioPath == lastAudio):
-                cutId+= 1
-            else:
-                lastAudio = audioPath
-                cutId = 0
-
-            audio = os.path.join(audioSourcePath, audioPath)
-            outputFileName = f"{audioPath}_{cutId}.wav"
-            outputPath = os.path.join(folderDestinyPath, outputFileName)
-
-            segmentedAudio, sr = cutAudio(audio, startTime, endTime)
-            sf.write(outputPath, segmentedAudio, sr)
-
-            centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc = getFeatures(segmentedAudio, sr)
-            textures = {
-                "centroid": centroid,
-                "contrast": contrast,
-                "flatness": flatness,
-                "rolloff": rolloff,
-                "zeroCrossRate": zeroCrossRate,
-                "rms": rms,
-                "mfcc": mfcc.tolist()
-            }
-            npyFileName = f"{audioPath}_{cutId}_features.npy"
-            npyPath = os.path.join(folderFeaturesPath, npyFileName)
-            npy.save(npyPath, textures)
-
-            print(f"linha{index}: audio = {audioPath}, timeIni = {startTime}, timeFim = {endTime}")
-            print(f"Segmento Salvo em {outputPath}")
-            print(f"Texturas Salvas em {npyPath}")
-        else:
-            print(f"linha{index}: Espécie incerta")
+        Parallel(n_jobs=4)(
+            delayed(process_audio)(index, line, lastAudioDict) for index, line in df_limite.iterrows()
+        )
 
 #############
-main()
+
+if __name__ == '__main__':
+    main()
