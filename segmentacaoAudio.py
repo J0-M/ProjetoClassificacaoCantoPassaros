@@ -70,6 +70,7 @@ def process_audio(index, line, lastAudioDict):
 
     centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc = getFeatures(segmentedAudio, sr)
     textures = {
+        "roi_label": roiLabel,
         "centroid": centroid,
         "contrast": contrast,
         "flatness": flatness,
