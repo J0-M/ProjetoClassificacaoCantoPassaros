@@ -15,6 +15,10 @@ pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_RO
 def cutAudio(audio, startTime, endTime):
     audio, sr = librosa.load(audio, sr=22000)
 
+    if startTime >= endTime:
+        print(f"Erro: startTime ({startTime}) >= endTime ({endTime}) para {audio}")
+        return None, None
+
     timeIni = int(sr * startTime)
     timeEnd = int(sr * endTime)
 
@@ -66,6 +70,10 @@ def process_audio(index, line, lastAudioDict):
     outputPath = os.path.join(folderDestinyPath, outputFileName)
 
     segmentedAudio, sr = cutAudio(audio, startTime, endTime)
+    
+    if segmentedAudio is None:
+        return None
+    
     sf.write(outputPath, segmentedAudio, sr)
 
     centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc = getFeatures(segmentedAudio, sr)
@@ -96,7 +104,7 @@ def main():
     with Manager() as manager:
         lastAudioDict = manager.dict()
 
-        df_limite = df.iloc[0:201]
+        df_limite = df.iloc[0:1001]
 
         Parallel(n_jobs=4)(
             delayed(process_audio)(index, line, lastAudioDict) for index, line in df_limite.iterrows()
