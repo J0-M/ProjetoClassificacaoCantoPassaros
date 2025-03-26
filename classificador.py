@@ -17,6 +17,10 @@ for file in os.listdir(folderFeaturesPath): # unifica os arquivos das features .
         file_path = os.path.join(folderFeaturesPath, file)
         features = np.load(file_path, allow_pickle=True).item()
         
+        if "roi_label" not in features or pd.isnull(features["roi_label"]):
+            print(f"Arquivo {file} tem valor ausente ou incorreto para roi_label")
+            continue
+        
         row = [features["roi_label"], features["centroid"], features["contrast"], 
                features["flatness"], features["rolloff"], features["zeroCrossRate"], 
                features["rms"]] + features["mfcc"]
@@ -36,15 +40,18 @@ X_scaled = scaler.fit_transform(X) # normaliza os dados das features para que o 
 with open("features_labels.pkl", "wb") as f:
     pickle.dump((X_scaled, y), f) #salva as features normalizadas num pickle
 
-X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=20) #80% treino, 20% teste
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=100) #80% treino, 20% teste
 
-knn = KNeighborsClassifier(n_neighbors=5)  # k=5
-knn.fit(X_train, y_train)
+k = 3
+knn = KNeighborsClassifier(n_neighbors=k)
+
+knn.fit(X_train, y_train) #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 y_pred = knn.predict(X_test) #testa o knn com o conjunto 20% teste
 
 f1 = f1_score(y_test, y_pred, average="weighted") #f1 score
 
+print(f"K: {k}")
 print(f"F1-score do KNN: {f1:.2f}")
 
 with open("knn_model.pkl", "wb") as f:
