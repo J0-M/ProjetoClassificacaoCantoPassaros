@@ -36,7 +36,7 @@ X_scaled = scaler.fit_transform(X) # normaliza os dados das features para que o 
 with open("features_labels.pkl", "wb") as f:
     pickle.dump((X_scaled, y), f) #salva as features normalizadas num pickle
 
-X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=20) #8-% treino, 20% teste
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=20) #80% treino, 20% teste
 
 knn = KNeighborsClassifier(n_neighbors=5)  # k=5
 knn.fit(X_train, y_train)
@@ -48,6 +48,6 @@ f1 = f1_score(y_test, y_pred, average="weighted") #f1 score
 print(f"F1-score do KNN: {f1:.2f}")
 
 with open("knn_model.pkl", "wb") as f:
-    pickle.dump(knn, f) #salav knn num pickle
+    pickle.dump(knn, f) #salva knn num pickle
 
 print("Modelo salvo como knn_model.pkl")
