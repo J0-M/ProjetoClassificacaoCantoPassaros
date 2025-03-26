@@ -96,7 +96,7 @@ def main():
     with Manager() as manager:
         lastAudioDict = manager.dict()
 
-        df_limite = df.iloc[0:51]
+        df_limite = df.iloc[0:201]
 
         Parallel(n_jobs=4)(
             delayed(process_audio)(index, line, lastAudioDict) for index, line in df_limite.iterrows()
