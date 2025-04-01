@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Manager
 import os
 import numpy as npy
+import pickle
 
 audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
 folderDestinyPath = "C:\\Users\\Pichau\\Desktop\\audiosSegmentados"
@@ -104,11 +105,37 @@ def main():
     with Manager() as manager:
         lastAudioDict = manager.dict()
 
-        df_limite = df.iloc[0:1001]
+        df_limite = df.iloc[0:101]
 
         Parallel(n_jobs=4)(
             delayed(process_audio)(index, line, lastAudioDict) for index, line in df_limite.iterrows()
         )
+
+    data = []
+
+    for file in os.listdir(folderFeaturesPath): # unifica os arquivos das features .npy em uma única matriz para usar o knn
+        if file.endswith(".npy"):
+            file_path = os.path.join(folderFeaturesPath, file)
+            features = npy.load(file_path, allow_pickle=True).item()
+            
+            if "roi_label" not in features or pd.isnull(features["roi_label"]):
+                print(f"Arquivo {file} tem valor ausente ou incorreto para roi_label")
+                continue
+            
+            row = [features["roi_label"], features["centroid"], features["contrast"], 
+                features["flatness"], features["rolloff"], features["zeroCrossRate"], 
+                features["rms"]] + features["mfcc"]
+            
+            data.append(row)
+
+    columns = ["roi_label", "centroid", "contrast", "flatness", "rolloff", 
+            "zeroCrossRate", "rms"] + [f"mfcc_{i}" for i in range(20)]
+    dfCut = pd.DataFrame(data, columns=columns) #cria um dataframe pandas
+
+    with open("dataframeSegmentado.pkl", "wb") as file:
+        pickle.dump(dfCut, file) #salva as features normalizadas num pickle
+    
+    #print(dfCut.head())
 
 #############
 
