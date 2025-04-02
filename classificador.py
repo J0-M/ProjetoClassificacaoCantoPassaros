@@ -72,21 +72,28 @@ def main():
     
     #####################################
 
-    knn = KNeighborsClassifier(n_neighbors=k) # k = 5, pelos testes
+    knnPath = "knnModel.pkl"
+    
+    if os.path.exists(knnPath):
+        with open("knnModel.pkl", "rb") as readFile:
+            knn = pickle.load(readFile)
+            print("KNN carregado com sucesso!")
+    else:
+        knn = KNeighborsClassifier(n_neighbors=k)
+        with open("knnModel.pkl", "wb") as f:
+            pickle.dump(knn, f) #salva knn num pickle
 
-    knn.fit(X_train_scaled, y_train) #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        print("Modelo salvo como knn_model.pkl")
+
+    knn.fit(X_train_scaled, y_train)
 
     y_pred = knn.predict(X_test_scaled) #testa o knn com o conjunto 20% teste
 
     f1 = f1_score(y_test, y_pred, average="weighted") #f1 score
-    
+        
     print(f"F1-score do KNN: {f1:.2f}")
     print(classification_report(y_test, y_pred))
 
-    with open("knn_model.pkl", "wb") as f:
-        pickle.dump(knn, f) #salva knn num pickle
-
-    print("Modelo salvo como knn_model.pkl")
     
 if __name__ == '__main__':
     main()
