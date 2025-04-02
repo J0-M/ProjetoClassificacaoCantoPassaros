@@ -44,7 +44,7 @@ def main():
 
     print(X.shape)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=100) #80% treino, 20% teste
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=2000) #80% treino, 20% teste
 
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train) # normaliza os dados das features para que o treino não seja enviesado por valores distoantes
