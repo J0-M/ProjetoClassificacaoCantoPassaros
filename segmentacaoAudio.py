@@ -14,11 +14,15 @@ folderFeaturesPath = "C:\\Users\\Pichau\\Desktop\\texturaAudios"
 pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
 
 def cutAudio(audio, startTime, endTime):
-    audio, sr = librosa.load(audio, sr=22000)
+    if pd.isna(startTime) or pd.isna(endTime):
+        print(f"Erro: startTime ou endTime é NaN para {audio}")
+        return None, None
 
     if startTime >= endTime:
         print(f"Erro: startTime ({startTime}) >= endTime ({endTime}) para {audio}")
         return None, None
+    
+    audio, sr = librosa.load(audio, sr=22000)
 
     timeIni = int(sr * startTime)
     timeEnd = int(sr * endTime)
@@ -102,13 +106,15 @@ def process_audio(index, line, lastAudioDict):
 def main():
     df = readCSV(pathCSV)
     
+    #print(df[["roi_start", "roi_end"]].isna().sum())
+    
     with Manager() as manager:
         lastAudioDict = manager.dict()
 
-        df_limite = df.iloc[0:101]
+        #df_limite = df.iloc[0:101]
 
         Parallel(n_jobs=4)(
-            delayed(process_audio)(index, line, lastAudioDict) for index, line in df_limite.iterrows()
+            delayed(process_audio)(index, line, lastAudioDict) for index, line in df.iterrows()
         )
 
     data = []
