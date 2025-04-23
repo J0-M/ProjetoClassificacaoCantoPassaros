@@ -14,7 +14,7 @@ def melhorK(ks, X_treino, X_val, y_treino, y_val, X_teste, y_teste):
         knn = KNeighborsClassifier(n_neighbors=k)
         knn.fit(X_treino, y_treino)
         pred = knn.predict(X_val)
-        acuracias_val.append(accuracy_score(y_val, pred))
+        acuracias_val.append(f1_score(y_val, pred, average="macro"))
         
     melhor_val = max(acuracias_val)
     melhor_k = ks[npy.argmax(acuracias_val)]        
@@ -23,7 +23,7 @@ def melhorK(ks, X_treino, X_val, y_treino, y_val, X_teste, y_teste):
     
     print("Melhor k na validação: %d (acc=%.2f)" % (melhor_k, melhor_val))
     pred = knn.predict(X_teste)
-    print("acurácia no teste: %.2f" % (accuracy_score(y_teste, pred)))
+    print("acurácia no teste: %.2f" % (f1_score(y_teste, pred, average="macro")))
     
     #with open("melhorK_knn.pkl", "wb") as file:
         #pickle.dump(melhor_k, file)
@@ -83,6 +83,13 @@ def printResultados(knn, X_test_scaled, y_test):
 def knnCruzado(X, y):
     #a validação cruzada será realizada em 10 vias.
     k_vias = 10
+    
+    #filtra os y, e elimina as amostras que tem menos que 2 especies
+    counts = y.value_counts()
+    classes_validas = counts[counts >= k_vias].index
+    filtro = y.isin(classes_validas)
+    X = X[filtro]
+    y = y[filtro]
 
     #usar o protocolo de validação cruzada estratificada
     skf = StratifiedKFold(n_splits=k_vias, shuffle=True, random_state=10)
@@ -99,13 +106,6 @@ def knnCruzado(X, y):
         #extrair as instâncias de teste de acordo com os índices fornecidos pelo skf.split
         X_teste = X.iloc[idx_teste]
         y_teste = y.iloc[idx_teste]
-        
-        #filtra os y, e elimina as amostras que tem menos que 2 especies
-        counts = y_treino.value_counts()
-        classes_validas = counts[counts >= 2].index
-        filtro = y_treino.isin(classes_validas)
-        X_treino = X_treino[filtro]
-        y_treino = y_treino[filtro]
         
         #separar as instâncias de treinamento entre treinamento e validação para a otimização do hiperparâmetro k
         X_treino, X_val, y_treino, y_val = train_test_split(X_treino, y_treino, test_size=0.2, stratify=y_treino, shuffle=True, random_state=10)
@@ -124,8 +124,7 @@ def knnCruzado(X, y):
         
         #calcular a acurácia no conjunto de testes desta iteração e salvar na lista.
         
-        #print(get_scorer_names())
-        acuracias.append(accuracy_score(y_teste, knn.predict(X_teste)))
+        acuracias.append(f1_score(y_teste, y_pred, average="macro"))
         
     
     return knn, acuracias
