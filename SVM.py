@@ -7,9 +7,10 @@ import itertools
 from sklearn.svm import SVC
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, f1_score, classification_report, get_scorer_names, get_scorer
+from sklearn.metrics import accuracy_score, f1_score, classification_report
 from joblib import Parallel, delayed
+
+from datetime import datetime
 
 #from utils import do_cv_knn
 
@@ -21,6 +22,7 @@ def selecionar_melhor_svm(Cs, gammas, X_treino : npy.ndarray, X_val : npy.ndarra
         svm.fit(X_treino, y_treino)
         pred = svm.predict(X_val)
         return accuracy_score(y_val, pred)
+        #return f1_score(y_val, pred)
     
     #gera todas as combinações de parametros C e gamma, de acordo com as listas de valores recebidas por parametro.
     #Na prática faz o produto cartesiano entre Cs e gammas.
@@ -116,4 +118,7 @@ def main():
 
     
 if __name__ == '__main__':
+    startTime = datetime.now()
     main()
+    endTime = datetime.now()
+    print("Tempo de execução = ", endTime - startTime)

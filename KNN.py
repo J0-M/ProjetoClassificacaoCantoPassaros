@@ -5,7 +5,9 @@ import pickle
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, f1_score, classification_report, get_scorer_names, get_scorer
+from sklearn.metrics import accuracy_score, f1_score, classification_report
+
+from datetime import datetime
 
 def melhorK(ks, X_treino, X_val, y_treino, y_val, X_teste, y_teste):
     acuracias_val = []
@@ -178,4 +180,7 @@ def main():
 
     
 if __name__ == '__main__':
+    startTime = datetime.now()
     main()
+    endTime = datetime.now()
+    print("Tempo de execução = ", endTime - startTime)
