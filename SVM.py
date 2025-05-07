@@ -21,8 +21,8 @@ def selecionar_melhor_svm(Cs, gammas, X_treino : npy.ndarray, X_val : npy.ndarra
         svm = SVC(C=C, gamma=gamma)
         svm.fit(X_treino, y_treino)
         pred = svm.predict(X_val)
-        return accuracy_score(y_val, pred)
-        #return f1_score(y_val, pred)
+        #return accuracy_score(y_val, pred)
+        return f1_score(y_val, pred, average="macro")
     
     #gera todas as combinações de parametros C e gamma, de acordo com as listas de valores recebidas por parametro.
     #Na prática faz o produto cartesiano entre Cs e gammas.
