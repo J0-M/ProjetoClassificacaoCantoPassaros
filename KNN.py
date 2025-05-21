@@ -92,6 +92,10 @@ def knnCruzado(X, y):
     filtro = y.isin(classes_validas)
     X = X[filtro]
     y = y[filtro]
+    
+    print("Quantidade de amostras: ", X.shape)
+    num_especies = y.nunique()
+    print("Quantidade de especies: ", num_especies)
 
     #usar o protocolo de validação cruzada estratificada
     skf = StratifiedKFold(n_splits=k_vias, shuffle=True, random_state=10)
@@ -143,7 +147,10 @@ def main():
     X = df.drop(columns=["roi_label"]) # x = features
     y = df["roi_label"] # y = passaros
 
-    print(X.shape)
+    print("Quantidade de amostras: ", X.shape)
+    
+    num_especies = y.nunique()
+    print("Quantidade de especies: ", num_especies)
     
     #####################################
 

@@ -7,7 +7,7 @@ import itertools
 from sklearn.svm import SVC
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, f1_score, classification_report
+from sklearn.metrics import accuracy_score, f1_score, classification_report, top_k_accuracy_score
 from joblib import Parallel, delayed
 
 from datetime import datetime
@@ -18,7 +18,7 @@ def selecionar_melhor_svm(Cs, gammas, X_treino : npy.ndarray, X_val : npy.ndarra
                           y_treino : npy.ndarray, y_val : npy.ndarray, n_jobs=4):
     
     def treinar_svm(C, gamma, X_treino, X_val, y_treino, y_val):
-        svm = SVC(C=C, gamma=gamma)
+        svm = SVC(C=C, gamma=gamma, probability=True)
         svm.fit(X_treino, y_treino)
         pred = svm.predict(X_val)
         #return accuracy_score(y_val, pred)
@@ -39,7 +39,7 @@ def selecionar_melhor_svm(Cs, gammas, X_treino : npy.ndarray, X_val : npy.ndarra
     melhor_gamma = melhor_comb[1]
     
     #Treinar uma SVM com todos os dados de treino e validação usando a melhor combinação de C e gamma.
-    svm = SVC(C=melhor_c, gamma=melhor_gamma)
+    svm = SVC(C=melhor_c, gamma=melhor_gamma, probability=True)
     svm.fit(npy.vstack((X_treino, X_val)), [*y_treino, *y_val])
 
     return svm, melhor_comb, melhor_val
@@ -48,49 +48,121 @@ def selecionar_melhor_svm(Cs, gammas, X_treino : npy.ndarray, X_val : npy.ndarra
 #cv_splits indica o número de partições que devem ser criadas.
 #Cs é a lista com os valores C que devem ser avaliados na busca exaustiva de parametros para a SVM.
 #gammas s é a lista com os valores gamma que devem ser avaliados na busca exaustiva de parametros para a SVM.
-def do_cv_svm(X, y, cv_splits, Cs=[1], gammas=['scale']):
+def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
 
     skf = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=1)
 
     acuracias = []
+    topkScores = []
     
-    for treino_idx, teste_idx in skf.split(X, y):
-
+    matrizFoldPath = "matrizesProba_svm"
+    if(not os.path.exists(matrizFoldPath)):
+        os.makedirs(matrizFoldPath, exist_ok=True)
+        
+    modelosFoldPath = "modelos_svm"
+    if(not os.path.exists(modelosFoldPath)):
+        os.makedirs(modelosFoldPath, exist_ok=True)
+    
+    
+    for foldId, (treino_idx, teste_idx) in enumerate(skf.split(X, y)):
+        
+        matriz_filename = os.path.join(matrizFoldPath, f"matriz_{foldId + 1}.pkl")
+        modelo_filename = os.path.join(modelosFoldPath, f"svm_model_fold_{foldId + 1}.pkl")
+        
+        ss = StandardScaler()
+        
         X_treino = X.iloc[treino_idx]
         y_treino = y.iloc[treino_idx]
 
         X_teste = X.iloc[teste_idx]
         y_teste = y.iloc[teste_idx]
+    
+        if os.path.exists(modelo_filename):
+            print(f"Carregando modelo do fold {foldId + 1}...")
+            with open(modelo_filename, "rb") as f_modelo:
+                svm = pickle.load(f_modelo)
 
-        X_treino, X_val, y_treino, y_val = train_test_split(X_treino, y_treino, stratify=y_treino, test_size=0.2, random_state=1)
+            ss.fit(X_treino)
+            X_teste = ss.transform(X_teste)
+            y_pred = svm.predict(X_teste)
+            y_proba = svm.predict_proba(X_teste)
 
-        ss = StandardScaler()
-        ss.fit(X_treino)
-        X_treino = ss.transform(X_treino)
-        X_teste = ss.transform(X_teste)
-        X_val = ss.transform(X_val)
-
-        svm, _, _ = selecionar_melhor_svm(Cs, gammas, X_treino, X_val, y_treino, y_val)
-        pred = svm.predict(X_teste)
+            if os.path.exists(matriz_filename):
+                print(f"Carregando matriz do fold {foldId + 1}...")
+                with open(matriz_filename, "rb") as f:
+                    matriz_info = pickle.load(f)
+            else:
+                matriz_info = {
+                    "fold": foldId,
+                    "y_true": y_teste.values,
+                    "y_proba": y_proba,
+                    "classes": svm.classes_
+                }
+                with open(matriz_filename, "wb") as f:
+                    pickle.dump(matriz_info, f)
+                print(f"Probabilidades salvas em {matriz_filename}")
         
-        printResultados(svm, X_teste, y_teste)
+        else:
+            print(f"Criando modelo do fold {foldId + 1}...")
+
+            X_treino, X_val, y_treino, y_val = train_test_split(X_treino, y_treino, stratify=y_treino, test_size=0.2, random_state=1)
+
+            ss = StandardScaler()
+            ss.fit(X_treino)
+            X_treino = ss.transform(X_treino)
+            X_teste = ss.transform(X_teste)
+            X_val = ss.transform(X_val)
+
+            svm, _, _ = selecionar_melhor_svm(Cs, gammas, X_treino, X_val, y_treino, y_val)
+            y_pred = svm.predict(X_teste)
+            y_proba = svm.predict_proba(X_teste)
+        
+        
+            matriz_info = {
+                "fold": foldId,
+                "y_true": y_teste.values,
+                "y_proba": y_proba,
+                "classes": svm.classes_
+            }
+            
+            filename = os.path.join(matrizFoldPath, f"matriz_{foldId + 1}.pkl")
+            with open(filename, "wb") as f:
+                pickle.dump(matriz_info, f)
+            print(f"Probabilidades salvas em {filename}")
+            
+            os.makedirs(modelosFoldPath, exist_ok=True)
+            modelo_filename = os.path.join(modelosFoldPath, f"svm_model_fold_{foldId + 1}.pkl")
+            with open(modelo_filename, "wb") as f_modelo:
+                pickle.dump(svm, f_modelo)
+            print(f"Modelo do fold {foldId + 1} salvo em {modelo_filename}")
+            
+            
+        f1 = f1_score(y_teste, y_pred, average="macro")
+        topk = top_k_accuracy_score(y_teste, y_proba, k=ka)
+        printResultados(svm, X_teste, y_teste, ka)
 
         #acuracias.append(accuracy_score(y_teste, pred))
-        acuracias.append(f1_score(y_teste, pred, average="macro"))
-        
+        acuracias.append(f1)
+        topkScores.append(topk)
     
-    return acuracias
+    return acuracias, topkScores
 
-def printResultados(svm, X_test_scaled, y_test):
-    y_pred = svm.predict(X_test_scaled) #testa o knn com o conjunto 20% teste
+def printResultados(svm, X_test_scaled, y_test, ka):
+    y_proba = svm.predict_proba(X_test_scaled)
+    y_pred = svm.predict(X_test_scaled)
 
-    f1 = f1_score(y_test, y_pred, average="weighted") #f1 score
-        
-    print(f"F1-score do KNN: {f1:.2f}")
-    print(classification_report(y_test, y_pred))
-    
+    f1 = f1_score(y_test, y_pred, average="macro")
+    topk_acc = top_k_accuracy_score(y_test, y_proba, k=ka)
+
+    print(f"F1-score do SVM: {f1:.2f}")
+    print(f"Top-{ka} Accuracy: {topk_acc:.2f}")
+    #print(classification_report(y_test, y_pred))
+
+    return topk_acc
 
 def main():
+    
+    k = 5
     
     dataframePath = "dataframeSegmentado.pkl"
 
@@ -112,9 +184,15 @@ def main():
     X = X[filtro]
     y = y[filtro]
     
-    acuracias = do_cv_svm(X, y, cv, Cs=[1, 10, 100, 1000], gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4])
+    acuracias, topkAcuracias = do_cv_svm(X, y, k, cv, Cs=[1, 10, 100, 1000], gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4])
     
+    print("\n\nSCORES SVM: \n")
+    
+    print("f1-Score Macro:")
     print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f" % (min(acuracias), max(acuracias), npy.mean(acuracias), npy.std(acuracias)))
+    
+    print(f"Top-K Score (Top-{k}):")
+    print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f" % (min(topkAcuracias), max(topkAcuracias), npy.mean(topkAcuracias), npy.std(topkAcuracias)))
 
     
 if __name__ == '__main__':
