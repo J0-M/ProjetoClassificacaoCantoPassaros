@@ -14,15 +14,18 @@ from datetime import datetime
 
 #from utils import do_cv_knn
 
-def selecionar_melhor_svm(Cs, gammas, X_treino : npy.ndarray, X_val : npy.ndarray, 
+def selecionar_melhor_svm(ka, Cs, gammas, X_treino : npy.ndarray, X_val : npy.ndarray, 
                           y_treino : npy.ndarray, y_val : npy.ndarray, n_jobs=4):
     
     def treinar_svm(C, gamma, X_treino, X_val, y_treino, y_val):
         svm = SVC(C=C, gamma=gamma, probability=True)
         svm.fit(X_treino, y_treino)
         pred = svm.predict(X_val)
+        #proba = svm.predict_proba(X_val)
+        
         #return accuracy_score(y_val, pred)
         return f1_score(y_val, pred, average="macro")
+        #return top_k_accuracy_score(y_val, proba, k=ka)
     
     #gera todas as combinações de parametros C e gamma, de acordo com as listas de valores recebidas por parametro.
     #Na prática faz o produto cartesiano entre Cs e gammas.
@@ -113,7 +116,7 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
             X_teste = ss.transform(X_teste)
             X_val = ss.transform(X_val)
 
-            svm, _, _ = selecionar_melhor_svm(Cs, gammas, X_treino, X_val, y_treino, y_val)
+            svm, _, _ = selecionar_melhor_svm(ka, Cs, gammas, X_treino, X_val, y_treino, y_val)
             y_pred = svm.predict(X_teste)
             y_proba = svm.predict_proba(X_teste)
         
@@ -162,7 +165,7 @@ def printResultados(svm, X_test_scaled, y_test, ka):
 
 def main():
     
-    k = 5
+    k = 3
     
     dataframePath = "dataframeSegmentado.pkl"
 
@@ -170,6 +173,9 @@ def main():
         with open("dataframeSegmentado.pkl", "rb") as readFile:
             df = pickle.load(readFile)
             print("Dataframe carregado com sucesso!")
+    else:
+        print("Dataframe não encontrado!")
+        return
 
     X = df.drop(columns=["roi_label"]) # x = features
     y = df["roi_label"] # y = passaros
