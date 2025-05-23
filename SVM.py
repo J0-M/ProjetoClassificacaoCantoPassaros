@@ -23,7 +23,6 @@ def selecionar_melhor_svm(ka, Cs, gammas, X_treino : npy.ndarray, X_val : npy.nd
         pred = svm.predict(X_val)
         #proba = svm.predict_proba(X_val)
         
-        #return accuracy_score(y_val, pred)
         return f1_score(y_val, pred, average="macro")
         #return top_k_accuracy_score(y_val, proba, k=ka)
     
