@@ -189,10 +189,10 @@ def knnCruzado(X, y, ka):
 def main():
     ka = 5
     
-    dataframePath = "dataframeSegmentado.pkl"
+    dataframePath = "dataframes/dataframeSegmentado.pkl"
 
     if os.path.exists(dataframePath):
-        with open("dataframeSegmentado.pkl", "rb") as readFile:
+        with open(dataframePath, "rb") as readFile:
             df = pickle.load(readFile)
             print("Dataframe carregado com sucesso!")
     else:
