@@ -66,7 +66,7 @@ def printResultados(knn, X_test_scaled, y_test, ka):
     y_pred = knn.predict(X_test_scaled)
 
     f1 = f1_score(y_test, y_pred, average="macro")
-    topk_acc = top_k_accuracy_score(y_test, y_proba, k=ka)
+    topk_acc = top_k_accuracy_score(y_test, y_proba, k=ka, labels=knn.classes_)
 
     print(f"F1-score do KNN: {f1:.2f}")
     print(f"Top-{ka} Accuracy: {topk_acc:.2f}")
@@ -180,16 +180,16 @@ def knnCruzado(X, y, ka):
         #calcular a acurácia no conjunto de testes desta iteração e salvar na lista.
         
         acuracias.append(f1_score(y_teste, y_pred, average="macro"))
-        topKScores.append(top_k_accuracy_score(y_teste, y_proba, k=ka))
+        topKScores.append(top_k_accuracy_score(y_teste, y_proba, k=ka, labels=knn.classes_))
         printResultados(knn, X_teste, y_teste, ka)
     
     return acuracias, topKScores
-    
 
 def main():
     ka = 5
     
-    dataframePath = "dataframes/dataframeSegmentado.pkl"
+    #dataframePath = "dataframes/dataframeSegmentado.pkl"
+    dataframePath = "dataframes/dataframeAudioCompleto.pkl"
 
     if os.path.exists(dataframePath):
         with open(dataframePath, "rb") as readFile:
@@ -209,15 +209,20 @@ def main():
     
     acuracias, topKAcuracias = knnCruzado(X, y, ka)
     
-    print("\n\nSCORES KNN: \n")
+    print("\n")
+    if(dataframePath == "dataframes/dataframeSegmentado.pkl"):
+        print("--TESTE ÁUDIOS SEGMENTADOS--")
+    else:
+        print("--TESTE ÁUDIOS COMPLETOS--")
+        
+    print("SCORES KNN: \n")
     
     print("f1-Score Macro:")
-    print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f" % (min(acuracias), max(acuracias), npy.mean(acuracias), npy.std(acuracias)))
+    print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f \n" % (min(acuracias), max(acuracias), npy.mean(acuracias), npy.std(acuracias)))
     
     print(f"Top-K Score (Top-{ka}):")
-    print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f" % (min(topKAcuracias), max(topKAcuracias), npy.mean(topKAcuracias), npy.std(topKAcuracias)))
+    print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f \n" % (min(topKAcuracias), max(topKAcuracias), npy.mean(topKAcuracias), npy.std(topKAcuracias)))
 
-    
 if __name__ == '__main__':
     startTime = datetime.now()
     main()
