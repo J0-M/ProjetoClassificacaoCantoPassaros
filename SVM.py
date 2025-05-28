@@ -140,7 +140,7 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
             
             
         f1 = f1_score(y_teste, y_pred, average="macro")
-        topk = top_k_accuracy_score(y_teste, y_proba, k=ka)
+        topk = top_k_accuracy_score(y_teste, y_proba, k=ka, labels=svm.classes_)
         printResultados(svm, X_teste, y_teste, ka)
 
         #acuracias.append(accuracy_score(y_teste, pred))
@@ -154,7 +154,7 @@ def printResultados(svm, X_test_scaled, y_test, ka):
     y_pred = svm.predict(X_test_scaled)
 
     f1 = f1_score(y_test, y_pred, average="macro")
-    topk_acc = top_k_accuracy_score(y_test, y_proba, k=ka)
+    topk_acc = top_k_accuracy_score(y_test, y_proba, k=ka, labels=svm.classes_)
 
     print(f"F1-score do SVM: {f1:.2f}")
     print(f"Top-{ka} Accuracy: {topk_acc:.2f}")
@@ -164,9 +164,10 @@ def printResultados(svm, X_test_scaled, y_test, ka):
 
 def main():
     
-    k = 3
+    k = 5
     
-    dataframePath = "dataframes/dataframeSegmentado.pkl"
+    #dataframePath = "dataframes/dataframeSegmentado.pkl"
+    dataframePath = "dataframes/dataframeAudioCompleto.pkl"
 
     if os.path.exists(dataframePath):
         with open(dataframePath, "rb") as readFile:
@@ -191,7 +192,13 @@ def main():
     
     acuracias, topkAcuracias = do_cv_svm(X, y, k, cv, Cs=[1, 10, 100, 1000], gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4])
     
-    print("\n\nSCORES SVM: \n")
+    print("\n")
+    if(dataframePath == "dataframes/dataframeSegmentado.pkl"):
+        print("--TESTE ÁUDIOS SEGMENTADOS--")
+    else:
+        print("--TESTE ÁUDIOS COMPLETOS--")
+    
+    print("SCORES SVM: \n")
     
     print("f1-Score Macro:")
     print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f" % (min(acuracias), max(acuracias), npy.mean(acuracias), npy.std(acuracias)))
