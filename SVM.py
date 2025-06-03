@@ -166,8 +166,11 @@ def main():
     
     k = 5
     
+    # DATAFRAME SEGMENTADO FOI O UTILIZADO PARA TREINAR OS MODELOS
+    
     #dataframePath = "dataframes/dataframeSegmentado.pkl"
-    dataframePath = "dataframes/dataframeAudioCompleto.pkl"
+    #dataframePath = "dataframes/dataframeAudioCompleto.pkl"
+    dataframePath = "dataframes/dataframeAudiosPassaroUnico.pkl"
 
     if os.path.exists(dataframePath):
         with open(dataframePath, "rb") as readFile:
@@ -195,8 +198,10 @@ def main():
     print("\n")
     if(dataframePath == "dataframes/dataframeSegmentado.pkl"):
         print("--TESTE ÁUDIOS SEGMENTADOS--")
-    else:
+    elif(dataframePath == "dataframes/dataframeAudioCompleto.pkl"):
         print("--TESTE ÁUDIOS COMPLETOS--")
+    else:
+        print("--TESTE ÁUDIOS PÁSSARO ÚNICO--")
     
     print("SCORES SVM: \n")
     
