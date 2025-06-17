@@ -82,7 +82,7 @@ def knnCruzado(X, y, ka):
     acuracias = []
     topKScores = []
     
-    #filtra os y, e elimina as amostras que tem menos que 2 especies
+    #filtra os y, e elimina as amostras que tem menos que k_vias especies
     counts = y.value_counts()
     classes_validas = counts[counts >= k_vias].index
     filtro = y.isin(classes_validas)
@@ -111,9 +111,13 @@ def knnCruzado(X, y, ka):
         X_treino = X.iloc[idx_treino]
         y_treino = y.iloc[idx_treino]
         
+        #conjunto treino foldId
+        
         #extrair as instâncias de teste de acordo com os índices fornecidos pelo skf.split
         X_teste = X.iloc[idx_teste]
         y_teste = y.iloc[idx_teste]
+        
+        #conjunto teste foldId
         
         if(os.path.exists(modelo_filename)):
             print(f"Carregando modelo do fold {foldId + 1}...")
@@ -190,9 +194,9 @@ def main():
     
     # DATAFRAME SEGMENTADO FOI O UTILIZADO PARA TREINAR OS MODELOS
     
-    #dataframePath = "dataframes/dataframeSegmentado.pkl"
+    dataframePath = "dataframes/dataframeSegmentado.pkl"
     #dataframePath = "dataframes/dataframeAudioCompleto.pkl"
-    dataframePath = "dataframes/dataframeAudiosPassaroUnico.pkl"
+    #dataframePath = "dataframes/dataframeAudiosPassaroUnico.pkl"
 
     if os.path.exists(dataframePath):
         with open(dataframePath, "rb") as readFile:
