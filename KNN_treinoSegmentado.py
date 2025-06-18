@@ -130,19 +130,19 @@ def knnCruzado(X, y, ka):
             
         with open(fold_archive_X_treino, "wb") as f:
             pickle.dump(X_treino, f)
-        print(f"Probabilidades salvas em {fold_archive_X_treino}")
+        print(f"Fold salvos em {fold_archive_X_treino}")
         
         with open(fold_archive_y_treino, "wb") as f:
             pickle.dump(y_treino, f)
-        print(f"Probabilidades salvas em {fold_archive_y_treino}")
+        print(f"Fold salvos em {fold_archive_y_treino}")
         
         with open(fold_archive_X_teste, "wb") as f:
             pickle.dump(X_teste, f)
-        print(f"Probabilidades salvas em {fold_archive_X_teste}")
+        print(f"Fold salvos em {fold_archive_X_teste}")
         
         with open(fold_archive_y_teste, "wb") as f:
             pickle.dump(y_teste, f)
-        print(f"Probabilidades salvas em {fold_archive_y_teste}")
+        print(f"Fold salvos em {fold_archive_y_teste}")
         
         if(os.path.exists(modelo_filename)):
             print(f"Carregando modelo do fold {foldId + 1}...")
