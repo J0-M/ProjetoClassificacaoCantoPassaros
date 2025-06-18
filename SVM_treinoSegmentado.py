@@ -61,7 +61,7 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
     if(not os.path.exists(matrizFoldPath)):
         os.makedirs(matrizFoldPath, exist_ok=True)
         
-    modelosFoldPath = "modelos_svm"
+    modelosFoldPath = "modelos_svm_treinoSegmentado"
     if(not os.path.exists(modelosFoldPath)):
         os.makedirs(modelosFoldPath, exist_ok=True)
     

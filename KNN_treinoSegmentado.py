@@ -26,7 +26,7 @@ def melhorK(ks, X_treino, X_val, y_treino, y_val, X_teste, y_teste, ka):
     #melhor_val = max(topkKScores)
     melhor_k = ks[npy.argmax(acuracias_val)]
     #melhor_k = ks[npy.argmax(topkKScores)] 
-           
+
     knn = KNeighborsClassifier(n_neighbors=melhor_k)
     knn.fit(npy.vstack((X_treino, X_val)), [*y_treino, *y_val])
     
@@ -97,7 +97,7 @@ def knnCruzado(X, y, ka):
     if(not os.path.exists(matrizFoldPath)):
         os.makedirs(matrizFoldPath, exist_ok=True)
         
-    modelosFoldPath = "modelos_knn"
+    modelosFoldPath = "modelos_knn_treinoSegmentado"
     if(not os.path.exists(modelosFoldPath)):
         os.makedirs(modelosFoldPath, exist_ok=True)
 
@@ -118,6 +118,31 @@ def knnCruzado(X, y, ka):
         y_teste = y.iloc[idx_teste]
         
         #conjunto teste foldId
+        
+        path_folds = "folds_audiosSegmentados"
+        fold_archive_X_treino = os.path.join(path_folds, f"X_treino_fold_{foldId + 1}.pkl")
+        fold_archive_y_treino = os.path.join(path_folds, f"y_treino_fold_{foldId + 1}.pkl")
+        fold_archive_X_teste = os.path.join(path_folds, f"X_teste_fold_{foldId + 1}.pkl")
+        fold_archive_y_teste = os.path.join(path_folds, f"y_teste_fold_{foldId + 1}.pkl")
+        
+        if(not os.path.exists(path_folds)):
+            os.makedirs(path_folds, exist_ok=True)
+            
+        with open(fold_archive_X_treino, "wb") as f:
+            pickle.dump(X_treino, f)
+        print(f"Probabilidades salvas em {fold_archive_X_treino}")
+        
+        with open(fold_archive_y_treino, "wb") as f:
+            pickle.dump(y_treino, f)
+        print(f"Probabilidades salvas em {fold_archive_y_treino}")
+        
+        with open(fold_archive_X_teste, "wb") as f:
+            pickle.dump(X_teste, f)
+        print(f"Probabilidades salvas em {fold_archive_X_teste}")
+        
+        with open(fold_archive_y_teste, "wb") as f:
+            pickle.dump(y_teste, f)
+        print(f"Probabilidades salvas em {fold_archive_y_teste}")
         
         if(os.path.exists(modelo_filename)):
             print(f"Carregando modelo do fold {foldId + 1}...")
