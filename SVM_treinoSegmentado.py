@@ -57,7 +57,7 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
     acuracias = []
     topkScores = []
     
-    matrizFoldPath = "matrizesProba_svm"
+    matrizFoldPath = "matrizesProba_svm_treinoSegmentado"
     if(not os.path.exists(matrizFoldPath)):
         os.makedirs(matrizFoldPath, exist_ok=True)
         
@@ -65,11 +65,7 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
     if(not os.path.exists(modelosFoldPath)):
         os.makedirs(modelosFoldPath, exist_ok=True)
     
-    path_folds = "folds_audiosSegmentados"
-    fold_archive_X_treino = os.path.join(path_folds, f"X_treino_fold_{foldId + 1}.pkl")
-    fold_archive_y_treino = os.path.join(path_folds, f"y_treino_fold_{foldId + 1}.pkl")
-    fold_archive_X_teste = os.path.join(path_folds, f"X_teste_fold_{foldId + 1}.pkl")
-    fold_archive_y_teste = os.path.join(path_folds, f"y_teste_fold_{foldId + 1}.pkl")
+    path_folds = "folds_audiosSegmentados_svm"
     
     for foldId, (treino_idx, teste_idx) in enumerate(skf.split(X, y)):
         
@@ -83,6 +79,11 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
 
         X_teste = X.iloc[teste_idx]
         y_teste = y.iloc[teste_idx]
+        
+        fold_archive_X_treino = os.path.join(path_folds, f"X_treino_fold_{foldId + 1}.pkl")
+        fold_archive_y_treino = os.path.join(path_folds, f"y_treino_fold_{foldId + 1}.pkl")
+        fold_archive_X_teste = os.path.join(path_folds, f"X_teste_fold_{foldId + 1}.pkl")
+        fold_archive_y_teste = os.path.join(path_folds, f"y_teste_fold_{foldId + 1}.pkl")
         
         if(not os.path.exists(path_folds)):
             os.makedirs(path_folds, exist_ok=True)

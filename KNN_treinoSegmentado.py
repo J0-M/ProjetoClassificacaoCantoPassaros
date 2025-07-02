@@ -93,7 +93,7 @@ def knnCruzado(X, y, ka):
     #num_especies = y.nunique()
     #print("Quantidade de especies: ", num_especies)
     
-    matrizFoldPath = "matrizesProba_knn"
+    matrizFoldPath = "matrizesProba_knn_treinoSegmentado"
     if(not os.path.exists(matrizFoldPath)):
         os.makedirs(matrizFoldPath, exist_ok=True)
         
@@ -119,7 +119,7 @@ def knnCruzado(X, y, ka):
         
         #conjunto teste foldId
         
-        path_folds = "folds_audiosSegmentados"
+        path_folds = "folds_audiosSegmentados_knn"
         fold_archive_X_treino = os.path.join(path_folds, f"X_treino_fold_{foldId + 1}.pkl")
         fold_archive_y_treino = os.path.join(path_folds, f"y_treino_fold_{foldId + 1}.pkl")
         fold_archive_X_teste = os.path.join(path_folds, f"X_teste_fold_{foldId + 1}.pkl")
