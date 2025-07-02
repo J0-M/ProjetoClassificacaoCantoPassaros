@@ -57,7 +57,7 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
     acuracias = []
     topkScores = []
     
-    matrizFoldPath = "matrizesProba_svm"
+    matrizFoldPath = "matrizesProba_svm_treinoCompleto"
     if(not os.path.exists(matrizFoldPath)):
         os.makedirs(matrizFoldPath, exist_ok=True)
         
@@ -65,7 +65,7 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
     if(not os.path.exists(modelosFoldPath)):
         os.makedirs(modelosFoldPath, exist_ok=True)
     
-    path_folds = "folds_audiosCompletos"
+    path_folds = "folds_audiosCompletos_svm"
     
     for foldId, (treino_idx, teste_idx) in enumerate(skf.split(X, y)):
         
