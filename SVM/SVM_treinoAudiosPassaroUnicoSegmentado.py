@@ -57,15 +57,15 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
     acuracias = []
     topkScores = []
     
-    matrizFoldPath = "matrizesProba_svm_treinoSegmentado"
+    matrizFoldPath = "matrizesProba_svm_treinoAudiosPassaroUnico"
     if(not os.path.exists(matrizFoldPath)):
         os.makedirs(matrizFoldPath, exist_ok=True)
         
-    modelosFoldPath = "modelos_svm_treinoSegmentado"
+    modelosFoldPath = "modelos_svm_treinoAudiosPassaroUnicoSegmentado"
     if(not os.path.exists(modelosFoldPath)):
         os.makedirs(modelosFoldPath, exist_ok=True)
     
-    path_folds = "folds_audiosSegmentados_svm"
+    path_folds = "folds_audiosPassaroUnicoSegmentado_svm"
     
     for foldId, (treino_idx, teste_idx) in enumerate(skf.split(X, y)):
         
@@ -84,7 +84,7 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
         fold_archive_y_treino = os.path.join(path_folds, f"y_treino_fold_{foldId + 1}.pkl")
         fold_archive_X_teste = os.path.join(path_folds, f"X_teste_fold_{foldId + 1}.pkl")
         fold_archive_y_teste = os.path.join(path_folds, f"y_teste_fold_{foldId + 1}.pkl")
-        
+
         if(not os.path.exists(path_folds)):
             os.makedirs(path_folds, exist_ok=True)
             
@@ -103,7 +103,7 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
         with open(fold_archive_y_teste, "wb") as f:
             pickle.dump(y_teste, f)
         print(f"Folds salvos em {fold_archive_y_teste}")
-    
+        
         if os.path.exists(modelo_filename):
             print(f"Carregando modelo do fold {foldId + 1}...")
             with open(modelo_filename, "rb") as f_modelo:
@@ -193,9 +193,9 @@ def main():
     
     # DATAFRAME SEGMENTADO FOI O UTILIZADO PARA TREINAR OS MODELOS
     
-    dataframePath = "dataframes/dataframeSegmentado.pkl"
-    #dataframePath = "dataframes/dataframeAudioCompleto.pkl"
-    #dataframePath = "dataframes/dataframeAudiosPassaroUnico.pkl"
+    #dataframePath = "../dataframes/dataframeSegmentado.pkl"
+    #dataframePath = "../dataframes/dataframeAudioCompleto.pkl"
+    dataframePath = "../dataframes/dataframeAudiosPassaroUnico.pkl"
 
     if os.path.exists(dataframePath):
         with open(dataframePath, "rb") as readFile:
