@@ -4,4 +4,4 @@ Colabodores: João Marcos Avancini, Juliano Henrique Foleis e Raquel Real Haagsm
 
 # To-Do List
 - [ ] Criar subpastas em knn e svm para cada tipo de arquétipo
-- [ ] Adicionar códigos de treino
+- [ ] Adicionar códigos de teste
