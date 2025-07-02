@@ -18,23 +18,15 @@ def readCSV(CSV):
     except pd.errors.EmptyDataError:
         print("Arquivo Vazio")
     
-def cutAudio(audio, startTime, endTime):
-    if pd.isna(startTime) or pd.isna(endTime):
-        print(f"Erro: startTime ou endTime é NaN para {audio}")
+def readAudio(audioPath):
+    try:
+        audio, sr = librosa.load(audioPath, sr=22000)
+        if len(audio) == 0:
+            raise ValueError("Áudio Vazio")
+        return audio, sr
+    except Exception as e:
+        print(f'Erro: {e}')
         return None, None
-
-    if startTime >= endTime:
-        print(f"Erro: startTime ({startTime}) >= endTime ({endTime}) para {audio}")
-        return None, None
-    
-    audio, sr = librosa.load(audio, sr=22000)
-
-    timeIni = int(sr * startTime)
-    timeEnd = int(sr * endTime)
-
-    segmentedAudio = audio[timeIni:timeEnd]
-
-    return segmentedAudio, sr
 
 def getFeatures(audio, sr):
     centroid = librosa.feature.spectral_centroid(y=audio, sr=sr).mean()
@@ -52,20 +44,19 @@ def getFeatures(audio, sr):
 def getFinalDataframe(dfAudios):
     data = []
     
-    print(dfAudios.shape)
+    grouped = dfAudios.drop_duplicates(subset=["soundscape_file"])
     
-    for index, row in dfAudios.iterrows():
+    print(grouped.shape)
+    
+    for index, row in grouped.iterrows():
         audioFileName = row["soundscape_file"]
         audioPath = os.path.join(audioSourcePath, audioFileName)
-        startTime = row["roi_start"]
-        endTime = row["roi_end"]
-        
-        audio, sr = cutAudio(audioPath, startTime, endTime)
         
         if not os.path.exists(audioPath):
             print("Arquivo Não Encontrado!")
             return None
         else:
+            audio, sr = readAudio(audioPath)
             
             if audio is None:
                 continue
@@ -103,13 +94,13 @@ def main():
     
     especiesAudio = df.groupby("soundscape_file")["roi_label"].nunique() #pegando quantas especies tem por audio
     
-    audiosValidos = especiesAudio[especiesAudio == 1].index.tolist() #pegando os audios cujo só tem 1 especie
+    audiosValidos = especiesAudio[especiesAudio == 1].index.tolist()#pegando os audios cujo só tem 1 especie
     
     df = df[df["soundscape_file"].isin(audiosValidos)]
     
     dataframeFinal = getFinalDataframe(df)
     
-    with open("dataframes/dataframeAudiosPassaroUnico.pkl", "wb") as file:
+    with open("../dataframes/dataframeAudioCompleto.pkl", "wb") as file:
         pickle.dump(dataframeFinal, file) #salva as features normalizadas num pickle
     
     print(dataframeFinal.head)

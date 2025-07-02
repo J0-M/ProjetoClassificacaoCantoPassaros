@@ -138,7 +138,7 @@ def main():
             "zeroCrossRate", "rms"] + [f"mfcc_{i}" for i in range(20)]
     dfCut = pd.DataFrame(data, columns=columns) #cria um dataframe pandas
 
-    with open("dataframes/dataframeSegmentado.pkl", "wb") as file:
+    with open("../dataframes/dataframeSegmentado.pkl", "wb") as file:
         pickle.dump(dfCut, file) #salva as features normalizadas num pickle
     
     #print(dfCut.head())
