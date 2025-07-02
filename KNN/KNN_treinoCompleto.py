@@ -219,9 +219,9 @@ def main():
     
     # DATAFRAME SEGMENTADO FOI O UTILIZADO PARA TREINAR OS MODELOS
     
-    #dataframePath = "dataframes/dataframeSegmentado.pkl"
-    dataframePath = "dataframes/dataframeAudioCompleto.pkl"
-    #dataframePath = "dataframes/dataframeAudiosPassaroUnico.pkl"
+    #dataframePath = "../dataframes/dataframeSegmentado.pkl"
+    dataframePath = "../dataframes/dataframeAudioCompleto.pkl"
+    #dataframePath = "../dataframes/dataframeAudiosPassaroUnico.pkl"
 
     if os.path.exists(dataframePath):
         with open(dataframePath, "rb") as readFile:
