@@ -1,18 +1,15 @@
 import os
 import numpy as npy
-import pandas as pd
 import pickle
 import itertools
 
 from sklearn.svm import SVC
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, f1_score, classification_report, top_k_accuracy_score
+from sklearn.metrics import f1_score, classification_report, top_k_accuracy_score
 from joblib import Parallel, delayed
 
 from datetime import datetime
-
-#from utils import do_cv_knn
 
 def selecionar_melhor_svm(ka, Cs, gammas, X_treino : npy.ndarray, X_val : npy.ndarray, 
                           y_treino : npy.ndarray, y_val : npy.ndarray, n_jobs=4):
@@ -21,10 +18,8 @@ def selecionar_melhor_svm(ka, Cs, gammas, X_treino : npy.ndarray, X_val : npy.nd
         svm = SVC(C=C, gamma=gamma, probability=True)
         svm.fit(X_treino, y_treino)
         pred = svm.predict(X_val)
-        #proba = svm.predict_proba(X_val)
         
         return f1_score(y_val, pred, average="macro")
-        #return top_k_accuracy_score(y_val, proba, k=ka)
     
     #gera todas as combinações de parametros C e gamma, de acordo com as listas de valores recebidas por parametro.
     #Na prática faz o produto cartesiano entre Cs e gammas.
@@ -168,7 +163,6 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
         topk = top_k_accuracy_score(y_teste, y_proba, k=ka, labels=svm.classes_)
         printResultados(svm, X_teste, y_teste, ka)
 
-        #acuracias.append(accuracy_score(y_teste, pred))
         acuracias.append(f1)
         topkScores.append(topk)
     
@@ -189,13 +183,9 @@ def printResultados(svm, X_test_scaled, y_test, ka):
 
 def main():
     
-    k = 5
+    k = 3 # Hiperparâmetro Top-K
     
-    # DATAFRAME SEGMENTADO FOI O UTILIZADO PARA TREINAR OS MODELOS
-    
-    #dataframePath = "../dataframes/dataframeSegmentado.pkl"
-    dataframePath = "../dataframes/dataframeAudioCompleto.pkl"
-    #dataframePath = "../dataframes/dataframeAudiosPassaroUnico.pkl"
+    dataframePath = "../dataframes/dataframeAudioCompleto.pkl" # Dataframe de treino
 
     if os.path.exists(dataframePath):
         with open(dataframePath, "rb") as readFile:

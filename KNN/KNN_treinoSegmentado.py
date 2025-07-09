@@ -1,31 +1,26 @@
 import os
 import numpy as npy
-import pandas as pd
 import pickle
+
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, f1_score, classification_report, top_k_accuracy_score
+from sklearn.metrics import f1_score, classification_report, top_k_accuracy_score
 
 from datetime import datetime
 
 def melhorK(ks, X_treino, X_val, y_treino, y_val, X_teste, y_teste, ka):
     acuracias_val = []
-    topkKScores = []
 
     for k in ks:
         knn = KNeighborsClassifier(n_neighbors=k)
         knn.fit(X_treino, y_treino)
         pred = knn.predict(X_val)
-        proba = knn.predict_proba(X_val)
         
         acuracias_val.append(f1_score(y_val, pred, average="macro"))
-        #topkKScores.append(top_k_accuracy_score(y_val, proba, k =ka))
         
     melhor_val = max(acuracias_val)
-    #melhor_val = max(topkKScores)
     melhor_k = ks[npy.argmax(acuracias_val)]
-    #melhor_k = ks[npy.argmax(topkKScores)] 
 
     knn = KNeighborsClassifier(n_neighbors=melhor_k)
     knn.fit(npy.vstack((X_treino, X_val)), [*y_treino, *y_val])
@@ -33,7 +28,6 @@ def melhorK(ks, X_treino, X_val, y_treino, y_val, X_teste, y_teste, ka):
     print("Melhor k na validação: %d (acc=%.2f)" % (melhor_k, melhor_val))
     pred = knn.predict(X_teste)
     print("Acurácia no teste: %.2f" % (f1_score(y_teste, pred, average="macro")))
-    #print("Acurácia no teste: %.2f" % (top_k_accuracy_score(y_teste, proba, k=ka)))
     
     return knn, melhor_k, melhor_val
 
@@ -73,11 +67,10 @@ def printResultados(knn, X_test_scaled, y_test, ka):
     #print(classification_report(y_test, y_pred))
     
 def knnCruzado(X, y, ka):
-    #a validação cruzada será realizada em 10 vias.
-    k_vias = 10
+
+    k_vias = 10 # validação cruzada em 10 vias.
     
-    #usar o protocolo de validação cruzada estratificada
-    skf = StratifiedKFold(n_splits=k_vias, shuffle=True, random_state=10)
+    skf = StratifiedKFold(n_splits=k_vias, shuffle=True, random_state=10) # usar o protocolo de validação cruzada estratificada
     
     acuracias = []
     topKScores = []
@@ -207,7 +200,6 @@ def knnCruzado(X, y, ka):
             print(f"Modelo do fold {foldId + 1} salvo em {modelo_filename}")
         
         #calcular a acurácia no conjunto de testes desta iteração e salvar na lista.
-        
         acuracias.append(f1_score(y_teste, y_pred, average="macro"))
         topKScores.append(top_k_accuracy_score(y_teste, y_proba, k=ka, labels=knn.classes_))
         printResultados(knn, X_teste, y_teste, ka)
@@ -215,13 +207,10 @@ def knnCruzado(X, y, ka):
     return acuracias, topKScores
 
 def main():
-    ka = 5
+    ka = 5 # Hiperparâmetro do Top-K
     
-    # DATAFRAME SEGMENTADO FOI O UTILIZADO PARA TREINAR OS MODELOS
     
-    dataframePath = "../dataframes/dataframeSegmentado.pkl"
-    #dataframePath = "../dataframes/dataframeAudioCompleto.pkl"
-    #dataframePath = "../dataframes/dataframeAudiosPassaroUnico.pkl"
+    dataframePath = "../dataframes/dataframeSegmentado.pkl" #Dataframe de treino
 
     if os.path.exists(dataframePath):
         with open(dataframePath, "rb") as readFile:
