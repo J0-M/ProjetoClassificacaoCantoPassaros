@@ -65,6 +65,7 @@ def getFinalDataframe(dfAudios):
             centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc = getFeatures(audio, sr)
             
             features = {
+                "audioSource": audioFileName,
                 "roi_label": row["roi_label"],
                 "centroid": centroid,
                 "contrast": contrast,
@@ -75,13 +76,13 @@ def getFinalDataframe(dfAudios):
                 "mfcc": mfcc.tolist()
             }
             
-            row = [features["roi_label"], features["centroid"], features["contrast"], 
+            row = [features["audioSource"], features["roi_label"], features["centroid"], features["contrast"], 
                 features["flatness"], features["rolloff"], features["zeroCrossRate"], 
                 features["rms"]] + features["mfcc"]
             
             data.append(row)
             
-    columns = ["roi_label", "centroid", "contrast", "flatness", "rolloff", 
+    columns = ["audioSource", "roi_label", "centroid", "contrast", "flatness", "rolloff", 
             "zeroCrossRate", "rms"] + [f"mfcc_{i}" for i in range(20)]
     dataframe = pd.DataFrame(data, columns=columns)
     
