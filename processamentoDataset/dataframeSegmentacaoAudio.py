@@ -9,8 +9,6 @@ import numpy as npy
 import pickle
 
 audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
-folderDestinyPath = "C:\\Users\\Pichau\\Desktop\\audiosSegmentados"
-folderFeaturesPath = "C:\\Users\\Pichau\\Desktop\\texturaAudios"
 pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
 
 def cutAudio(audio, startTime, endTime):
@@ -56,7 +54,7 @@ def getFeatures(audio, sr):
     return(centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc)
 ####################
 
-def process_audio(index, line, lastAudioDict):
+def process_audio(index, line, lastAudioDict, results):
     audioPath = line["soundscape_file"]
     roiLabel = line["roi_label"]
     startTime = line["roi_start"]
@@ -71,15 +69,11 @@ def process_audio(index, line, lastAudioDict):
     lastAudioDict[audioPath] = cutId
     
     audio = os.path.join(audioSourcePath, audioPath)
-    outputFileName = f"{audioPath}_{cutId}.wav"
-    outputPath = os.path.join(folderDestinyPath, outputFileName)
 
     segmentedAudio, sr = cutAudio(audio, startTime, endTime)
     
     if segmentedAudio is None:
         return None
-    
-    sf.write(outputPath, segmentedAudio, sr)
 
     centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc = getFeatures(segmentedAudio, sr)
     textures = {
@@ -92,19 +86,21 @@ def process_audio(index, line, lastAudioDict):
         "rms": rms,
         "mfcc": mfcc.tolist()
     }
-
-    npyFileName = f"{audioPath}_{cutId}_features.npy"
-    npyPath = os.path.join(folderFeaturesPath, npyFileName)
-    npy.save(npyPath, textures)
+    
+    results.append([
+        textures["roi_label"], textures["centroid"], textures["contrast"],
+        textures["flatness"], textures["rolloff"], textures["zeroCrossRate"],
+        textures["rms"]] + textures["mfcc"]
+    )
     
     print(f"linha{index}: audio = {audioPath}, timeIni = {startTime}, timeFim = {endTime}")
-    print(f"Segmento Salvo em {outputPath}")
-    print(f"Texturas Salvas em {npyPath}")
 
 ####################
 
 def main():
     df = readCSV(pathCSV)
+    
+    data = []
     
     #print(df[["roi_start", "roi_end"]].isna().sum())
     
@@ -116,23 +112,6 @@ def main():
         Parallel(n_jobs=4)(
             delayed(process_audio)(index, line, lastAudioDict) for index, line in df.iterrows()
         )
-
-    data = []
-
-    for file in os.listdir(folderFeaturesPath): # unifica os arquivos das features .npy em uma única matriz para usar o knn
-        if file.endswith(".npy"):
-            file_path = os.path.join(folderFeaturesPath, file)
-            features = npy.load(file_path, allow_pickle=True).item()
-            
-            if "roi_label" not in features or pd.isnull(features["roi_label"]):
-                print(f"Arquivo {file} tem valor ausente ou incorreto para roi_label")
-                continue
-            
-            row = [features["roi_label"], features["centroid"], features["contrast"], 
-                features["flatness"], features["rolloff"], features["zeroCrossRate"], 
-                features["rms"]] + features["mfcc"]
-            
-            data.append(row)
 
     columns = ["roi_label", "centroid", "contrast", "flatness", "rolloff", 
             "zeroCrossRate", "rms"] + [f"mfcc_{i}" for i in range(20)]
