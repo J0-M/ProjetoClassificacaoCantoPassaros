@@ -4,7 +4,7 @@ import pickle
 import itertools
 
 from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.model_selection import train_test_split, StratifiedKFold, StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, classification_report, top_k_accuracy_score
 from joblib import Parallel, delayed
@@ -45,9 +45,9 @@ def selecionar_melhor_svm(ka, Cs, gammas, X_treino : npy.ndarray, X_val : npy.nd
 #cv_splits indica o número de partições que devem ser criadas.
 #Cs é a lista com os valores C que devem ser avaliados na busca exaustiva de parametros para a SVM.
 #gammas s é a lista com os valores gamma que devem ser avaliados na busca exaustiva de parametros para a SVM.
-def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
+def do_cv_svm(X, y, ka, cv_splits, groups, Cs=[1], gammas=['scale']):
 
-    skf = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=1)
+    skf = StratifiedGroupKFold(n_splits=cv_splits, shuffle=True, random_state=1)
 
     acuracias = []
     topkScores = []
@@ -62,7 +62,12 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
     
     path_folds = "folds_audiosSegmentados_svm"
     
-    for foldId, (treino_idx, teste_idx) in enumerate(skf.split(X, y)):
+    for foldId, (treino_idx, teste_idx) in enumerate(skf.split(X, y, groups)):
+        
+        sources_train = set(groups.iloc[treino_idx])
+        sources_test = set(groups.iloc[teste_idx])
+        intersec = sources_train.intersection(sources_test)
+        assert len(intersec) == 0, f"Vazamento detectado em fold {foldId + 1} nos audioSource: {intersec}"
         
         matriz_filename = os.path.join(matrizFoldPath, f"matriz_{foldId + 1}.pkl")
         modelo_filename = os.path.join(modelosFoldPath, f"svm_model_fold_{foldId + 1}.pkl")
@@ -74,6 +79,18 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
 
         X_teste = X.iloc[teste_idx]
         y_teste = y.iloc[teste_idx]
+        
+        #######################
+        classes_validas = y_treino.value_counts()[lambda x: x >= cv_splits].index
+        mask_treino = y_treino.isin(classes_validas)
+        mask_teste = y_teste.isin(classes_validas)
+
+        X_treino = X_treino[mask_treino]
+        y_treino = y_treino[mask_treino]
+
+        X_teste = X_teste[mask_teste]
+        y_teste = y_teste[mask_teste]
+        ########################
         
         fold_archive_X_treino = os.path.join(path_folds, f"X_treino_fold_{foldId + 1}.pkl")
         fold_archive_y_treino = os.path.join(path_folds, f"y_treino_fold_{foldId + 1}.pkl")
@@ -147,20 +164,28 @@ def do_cv_svm(X, y, ka, cv_splits, Cs=[1], gammas=['scale']):
                 "classes": svm.classes_
             }
             
-            filename = os.path.join(matrizFoldPath, f"matriz_{foldId + 1}.pkl")
-            with open(filename, "wb") as f:
+            with open(matriz_filename, "wb") as f:
                 pickle.dump(matriz_info, f)
-            print(f"Probabilidades salvas em {filename}")
+            print(f"Probabilidades salvas em {matriz_filename}")
             
-            os.makedirs(modelosFoldPath, exist_ok=True)
-            modelo_filename = os.path.join(modelosFoldPath, f"svm_model_fold_{foldId + 1}.pkl")
             with open(modelo_filename, "wb") as f_modelo:
                 pickle.dump(svm, f_modelo)
             print(f"Modelo do fold {foldId + 1} salvo em {modelo_filename}")
             
             
         f1 = f1_score(y_teste, y_pred, average="macro")
-        topk = top_k_accuracy_score(y_teste, y_proba, k=ka, labels=svm.classes_)
+        
+        desconhecidas = (~y_teste.isin(svm.classes_)).sum()
+        print(f"  Amostras com classe 'não vista no treino': {desconhecidas}/{len(y_teste)}")
+        
+        classes_treino = set(svm.classes_)
+        mask = y_teste.isin(classes_treino)
+        
+        y_teste_filtrado = y_teste[mask]
+        y_proba_filtrado = y_proba[mask.values]
+        X_teste_filtrado = X_teste[mask.values]
+        
+        topk = top_k_accuracy_score(y_teste_filtrado, y_proba_filtrado, k=ka, labels=svm.classes_)
         printResultados(svm, X_teste, y_teste, ka)
 
         acuracias.append(f1)
@@ -173,7 +198,16 @@ def printResultados(svm, X_test_scaled, y_test, ka):
     y_pred = svm.predict(X_test_scaled)
 
     f1 = f1_score(y_test, y_pred, average="macro")
-    topk_acc = top_k_accuracy_score(y_test, y_proba, k=ka, labels=svm.classes_)
+    
+    mask = y_test.isin(svm.classes_)
+    y_test_filtrado = y_test[mask]
+    y_proba_filtrado = y_proba[mask.values]
+    classes_presentes = npy.intersect1d(svm.classes_, npy.unique(y_test_filtrado))
+    
+    idxs = [npy.where(svm.classes_ == c)[0][0] for c in classes_presentes]
+    y_proba_filtrado = y_proba_filtrado[:, idxs]
+    
+    topk_acc = top_k_accuracy_score(y_test_filtrado, y_proba_filtrado, k=ka, labels=classes_presentes)
 
     print(f"F1-score do SVM: {f1:.2f}")
     print(f"Top-{ka} Accuracy: {topk_acc:.2f}")
@@ -195,8 +229,10 @@ def main():
         print("Dataframe não encontrado!")
         return
 
-    X = df.drop(columns=["roi_label"]) # x = features
+    X = df.drop(columns=["roi_label", "audioSource"]) # x = features
     y = df["roi_label"] # y = passaros
+    groups = df["audioSource"]# variavel para separar corretamente os conjuntos no Skfold, com base no audio de origem
+    # cortes vindos do mesmo audio so estarao ou em treino ou em teste, nunca nos dois
 
     print(X.shape)
     
@@ -207,8 +243,9 @@ def main():
     filtro = y.isin(classes_validas)
     X = X[filtro]
     y = y[filtro]
+    groups = groups[filtro]
     
-    acuracias, topkAcuracias = do_cv_svm(X, y, k, cv, Cs=[1, 10, 100, 1000], gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4])
+    acuracias, topkAcuracias = do_cv_svm(X, y, k, cv, groups, Cs=[1, 10, 100, 1000], gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4])
     
     print("\n")
     if(dataframePath == "dataframes/dataframeSegmentado.pkl"):

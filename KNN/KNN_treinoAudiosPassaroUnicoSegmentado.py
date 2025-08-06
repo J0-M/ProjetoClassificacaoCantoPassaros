@@ -2,10 +2,11 @@ import os
 import numpy as npy
 import pickle
 
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.model_selection import train_test_split, StratifiedKFold, StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import f1_score, classification_report, top_k_accuracy_score
+from sklearn.utils.multiclass import unique_labels
 
 from datetime import datetime
 
@@ -16,7 +17,6 @@ def melhorK(ks, X_treino, X_val, y_treino, y_val, X_teste, y_teste, ka):
         knn = KNeighborsClassifier(n_neighbors=k)
         knn.fit(X_treino, y_treino)
         pred = knn.predict(X_val)
-        proba = knn.predict_proba(X_val)
         
         acuracias_val.append(f1_score(y_val, pred, average="macro"))
         
@@ -61,16 +61,27 @@ def printResultados(knn, X_test_scaled, y_test, ka):
     y_pred = knn.predict(X_test_scaled)
 
     f1 = f1_score(y_test, y_pred, average="macro")
-    topk_acc = top_k_accuracy_score(y_test, y_proba, k=ka, labels=knn.classes_)
+    
+    # Filtrar amostras com classes conhecidas para top_k
+    mask = y_test.isin(knn.classes_)
+    y_test_filtrado = y_test[mask]
+    y_proba_filtrado = y_proba[mask.values]
+    classes_presentes = npy.intersect1d(knn.classes_, npy.unique(y_test_filtrado))
+    
+    idxs = [npy.where(knn.classes_ == c)[0][0] for c in classes_presentes]
+    y_proba_filtrado = y_proba_filtrado[:, idxs]
+    
+    topk_acc = top_k_accuracy_score(y_test_filtrado, y_proba_filtrado, k=ka, labels=classes_presentes)
 
     print(f"F1-score do KNN: {f1:.2f}")
     print(f"Top-{ka} Accuracy: {topk_acc:.2f}")
     #print(classification_report(y_test, y_pred))
     
-def knnCruzado(X, y, ka):
-    k_vias = 10 # Validação cruzada em 10 vias
+def knnCruzado(X, y, ka, groups):
+
+    k_vias = 10 # validação cruzada em 10 vias.
     
-    skf = StratifiedKFold(n_splits=k_vias, shuffle=True, random_state=10) # usar o protocolo de validação cruzada estratificada
+    skf = StratifiedGroupKFold(n_splits=k_vias, shuffle=True, random_state=10) # usar o protocolo de validação cruzada estratificada
     
     acuracias = []
     topKScores = []
@@ -81,24 +92,30 @@ def knnCruzado(X, y, ka):
     filtro = y.isin(classes_validas)
     X = X[filtro]
     y = y[filtro]
+    groups = groups[filtro]
     
     #print("Quantidade de amostras: ", X.shape)
     #num_especies = y.nunique()
     #print("Quantidade de especies: ", num_especies)
     
-    matrizFoldPath = "matrizesProba_knn_treinoAudiosPassaroUnico"
+    matrizFoldPath = "matrizesProba_knn_treinoSegmentado"
     if(not os.path.exists(matrizFoldPath)):
         os.makedirs(matrizFoldPath, exist_ok=True)
         
-    modelosFoldPath = "modelos_knn_treinoAudiosPassaroUnicoSegmentado"
+    modelosFoldPath = "modelos_knn_treinoSegmentado"
     if(not os.path.exists(modelosFoldPath)):
         os.makedirs(modelosFoldPath, exist_ok=True)
 
     #a função split retorna os índices das instâncias que devem ser usadas para o treinamento e o teste.
-    for foldId, (idx_treino, idx_teste) in enumerate(skf.split(X, y)):
+    for foldId, (idx_treino, idx_teste) in enumerate(skf.split(X, y, groups)):
+        
+        sources_train = set(groups.iloc[idx_treino])
+        sources_test = set(groups.iloc[idx_teste])
+        intersec = sources_train.intersection(sources_test)
+        assert len(intersec) == 0, f"Vazamento detectado em fold {foldId + 1} nos audioSource: {intersec}"
         
         matriz_filename = os.path.join(matrizFoldPath, f"matriz_{foldId + 1}.pkl")
-        modelo_filename = os.path.join(modelosFoldPath, f"knn_model_fold_{foldId + 1}.pkl")
+        modelo_filename = os.path.join(modelosFoldPath, f"KNN_model_fold_{foldId + 1}.pkl")
         
         #extrair as instâncias de treinamento de acordo com os índices fornecidos pelo skf.split
         X_treino = X.iloc[idx_treino]
@@ -112,7 +129,7 @@ def knnCruzado(X, y, ka):
         
         #conjunto teste foldId
         
-        path_folds = "folds_audiosPassaroUnicoSegmentado_knn"
+        path_folds = "folds_audiosSegmentados_knn"
         fold_archive_X_treino = os.path.join(path_folds, f"X_treino_fold_{foldId + 1}.pkl")
         fold_archive_y_treino = os.path.join(path_folds, f"y_treino_fold_{foldId + 1}.pkl")
         fold_archive_X_teste = os.path.join(path_folds, f"X_teste_fold_{foldId + 1}.pkl")
@@ -123,19 +140,19 @@ def knnCruzado(X, y, ka):
             
         with open(fold_archive_X_treino, "wb") as f:
             pickle.dump(X_treino, f)
-        print(f"Folds salvos em {fold_archive_X_treino}")
+        print(f"Fold salvos em {fold_archive_X_treino}")
         
         with open(fold_archive_y_treino, "wb") as f:
             pickle.dump(y_treino, f)
-        print(f"Folds salvos em {fold_archive_y_treino}")
+        print(f"Fold salvos em {fold_archive_y_treino}")
         
         with open(fold_archive_X_teste, "wb") as f:
             pickle.dump(X_teste, f)
-        print(f"Folds salvos em {fold_archive_X_teste}")
+        print(f"Fold salvos em {fold_archive_X_teste}")
         
         with open(fold_archive_y_teste, "wb") as f:
             pickle.dump(y_teste, f)
-        print(f"Folds salvos em {fold_archive_y_teste}")
+        print(f"Fold salvos em {fold_archive_y_teste}")
         
         if(os.path.exists(modelo_filename)):
             print(f"Carregando modelo do fold {foldId + 1}...")
@@ -164,6 +181,13 @@ def knnCruzado(X, y, ka):
                 print(f"Probabilidades salvas em {matriz_filename}")
         else:
             print(f"Criando modelo do fold {foldId + 1}...")
+            
+            counts_treino = y_treino.value_counts()
+            classes_validas_treino = counts_treino[counts_treino >= 2].index
+            filtro_treino = y_treino.isin(classes_validas_treino)
+
+            X_treino = X_treino[filtro_treino]
+            y_treino = y_treino[filtro_treino]
             
             #separar as instâncias de treinamento entre treinamento e validação para a otimização do hiperparâmetro k
             X_treino, X_val, y_treino, y_val = train_test_split(X_treino, y_treino, test_size=0.2, stratify=y_treino, shuffle=True, random_state=10)
@@ -200,9 +224,23 @@ def knnCruzado(X, y, ka):
             print(f"Modelo do fold {foldId + 1} salvo em {modelo_filename}")
         
         #calcular a acurácia no conjunto de testes desta iteração e salvar na lista.
-        
         acuracias.append(f1_score(y_teste, y_pred, average="macro"))
-        topKScores.append(top_k_accuracy_score(y_teste, y_proba, k=ka, labels=knn.classes_))
+        
+        desconhecidas = (~y_teste.isin(knn.classes_)).sum()
+        print(f"  Amostras com classe 'não vista no treino': {desconhecidas}/{len(y_teste)}")
+        
+        classes_treino = set(knn.classes_)
+        mask = y_teste.isin(classes_treino)
+        
+        y_teste_filtrado = y_teste[mask]
+        y_proba_filtrado = y_proba[mask.values]
+        X_teste_filtrado = X_teste[mask.values]
+        
+        classes_presentes = npy.intersect1d(knn.classes_, npy.unique(y_teste_filtrado))
+        idxs = [npy.where(knn.classes_ == c)[0][0] for c in classes_presentes]
+        y_proba_filtrado = y_proba_filtrado[:, idxs]
+        
+        topKScores.append(top_k_accuracy_score(y_teste_filtrado, y_proba_filtrado, k=ka, labels=classes_presentes))
         printResultados(knn, X_teste, y_teste, ka)
     
     return acuracias, topKScores
@@ -210,7 +248,7 @@ def knnCruzado(X, y, ka):
 def main():
     ka = 3 # Hiperparâmetro do Top-K
     
-    dataframePath = "../dataframes/dataframeAudiosPassaroUnico.pkl" # Dataframe de Treino
+    dataframePath = "../dataframes/dataframeAudiosPassaroUnico.pkl" #Dataframe de treino
 
     if os.path.exists(dataframePath):
         with open(dataframePath, "rb") as readFile:
@@ -220,15 +258,17 @@ def main():
         print("Dataframe não encontrado!")
         return
 
-    X = df.drop(columns=["roi_label"]) # x = features
+    X = df.drop(columns=["roi_label", "audioSource"]) # x = features
     y = df["roi_label"] # y = passaros
+    groups = df["audioSource"] # variavel para separar corretamente os conjuntos no Skfold, com base no audio de origem
+    # cortes vindos do mesmo audio so estarao ou em treino ou em teste, nunca nos dois
 
     print("Quantidade de amostras: ", X.shape)
     
     num_especies = y.nunique()
     print("Quantidade de especies: ", num_especies)
     
-    acuracias, topKAcuracias = knnCruzado(X, y, ka)
+    acuracias, topKAcuracias = knnCruzado(X, y, ka, groups)
     
     print("\n")
     if(dataframePath == "dataframes/dataframeSegmentado.pkl"):
