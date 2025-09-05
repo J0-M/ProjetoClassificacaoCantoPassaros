@@ -4,9 +4,9 @@ import pickle
 import itertools
 
 from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split, StratifiedKFold, StratifiedGroupKFold
+from sklearn.model_selection import train_test_split, StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import f1_score, classification_report, top_k_accuracy_score
+from sklearn.metrics import f1_score, top_k_accuracy_score
 from joblib import Parallel, delayed
 
 from datetime import datetime
@@ -21,46 +21,71 @@ def selecionar_melhor_svm(ka, Cs, gammas, X_treino : npy.ndarray, X_val : npy.nd
         
         return f1_score(y_val, pred, average="macro")
     
-    #gera todas as combinações de parametros C e gamma, de acordo com as listas de valores recebidas por parametro.
-    #Na prática faz o produto cartesiano entre Cs e gammas.
+    # Gera todas as combinações de parâmetros C e gamma
     combinacoes_parametros = list(itertools.product(Cs, gammas))
     
-    #Treinar modelos com todas as combinações de C e gamma
+    # Treinar modelos com todas as combinações de C e gamma
     acuracias_val = Parallel(n_jobs=n_jobs)(delayed(treinar_svm)
                                        (c, g, X_treino, X_val, y_treino, y_val) for c, g in combinacoes_parametros)       
     
     melhor_val = max(acuracias_val)
-    #Encontrar a combinação que levou ao melhor resultado no conjunto de validação
+    # Encontrar a combinação que levou ao melhor resultado no conjunto de validação
     melhor_comb = combinacoes_parametros[npy.argmax(acuracias_val)]   
     melhor_c = melhor_comb[0]
     melhor_gamma = melhor_comb[1]
     
-    #Treinar uma SVM com todos os dados de treino e validação usando a melhor combinação de C e gamma.
+    # Treinar uma SVM com todos os dados de treino e validação usando a melhor combinação de C e gamma
     svm = SVC(C=melhor_c, gamma=melhor_gamma, probability=True)
     svm.fit(npy.vstack((X_treino, X_val)), [*y_treino, *y_val])
 
     return svm, melhor_comb, melhor_val
 
-#Implementa a validação cruzada para avaliar o desempenho da SVM na base de dados com as instâncias X e as saídas y.
-#cv_splits indica o número de partições que devem ser criadas.
-#Cs é a lista com os valores C que devem ser avaliados na busca exaustiva de parametros para a SVM.
-#gammas s é a lista com os valores gamma que devem ser avaliados na busca exaustiva de parametros para a SVM.
-def do_cv_svm(X, y, ka, cv_splits, groups, Cs=[1], gammas=['scale']):
+def printResultados(svm, X_test_scaled, y_test, ka):
+    y_proba = svm.predict_proba(X_test_scaled)
+    y_pred = svm.predict(X_test_scaled)
 
+    f1 = f1_score(y_test, y_pred, average="macro")
+    
+    mask = y_test.isin(svm.classes_)
+    y_test_filtrado = y_test[mask]
+    y_proba_filtrado = y_proba[mask.values]
+    classes_presentes = npy.intersect1d(svm.classes_, npy.unique(y_test_filtrado))
+    
+    idxs = [npy.where(svm.classes_ == c)[0][0] for c in classes_presentes]
+    y_proba_filtrado = y_proba_filtrado[:, idxs]
+    
+    topk_acc = top_k_accuracy_score(y_test_filtrado, y_proba_filtrado, k=ka, labels=classes_presentes)
+
+    print(f"F1-score do SVM: {f1:.2f}")
+    print(f"Top-{ka} Accuracy: {topk_acc:.2f}")
+
+    return topk_acc
+
+def do_cv_svm(X, y, ka, cv_splits, groups, dataset_type, Cs=[1], gammas=['scale']):
     skf = StratifiedGroupKFold(n_splits=cv_splits, shuffle=True, random_state=1)
 
     acuracias = []
     topkScores = []
     
-    matrizFoldPath = "matrizesProba_svm_treinoCompleto"
-    if(not os.path.exists(matrizFoldPath)):
-        os.makedirs(matrizFoldPath, exist_ok=True)
-        
-    modelosFoldPath = "modelos_svm_treinoCompleto"
-    if(not os.path.exists(modelosFoldPath)):
-        os.makedirs(modelosFoldPath, exist_ok=True)
+    # Definir caminhos baseados no tipo de dataset
+    if dataset_type == "segmentado":
+        matrizFoldPath = "matrizesProba_svm_treinoSegmentado"
+        modelosFoldPath = "modelos_svm_treinoSegmentado"
+        path_folds = "folds_audiosSegmentados_svm"
+    elif dataset_type == "completo":
+        matrizFoldPath = "matrizesProba_svm_treinoCompleto"
+        modelosFoldPath = "modelos_svm_treinoCompleto"
+        path_folds = "folds_audiosCompletos_svm"
+    elif dataset_type == "passaro_unico":
+        matrizFoldPath = "matrizesProba_svm_treinoAudiosPassaroUnico"
+        modelosFoldPath = "modelos_svm_treinoAudiosPassaroUnicoSegmentado"
+        path_folds = "folds_audiosPassaroUnicoSegmentado_svm"
+    else:
+        raise ValueError("Tipo de dataset não reconhecido")
     
-    path_folds = "folds_audiosCompletos_svm"
+    os.makedirs(matrizFoldPath, exist_ok=True)
+    os.makedirs(modelosFoldPath, exist_ok=True)
+    os.makedirs(path_folds, exist_ok=True)
     
     for foldId, (treino_idx, teste_idx) in enumerate(skf.split(X, y, groups)):
         
@@ -76,17 +101,24 @@ def do_cv_svm(X, y, ka, cv_splits, groups, Cs=[1], gammas=['scale']):
         
         X_treino = X.iloc[treino_idx]
         y_treino = y.iloc[treino_idx]
-
         X_teste = X.iloc[teste_idx]
         y_teste = y.iloc[teste_idx]
+        
+        # Filtro específico para dataset segmentado e passaro_unico
+        if dataset_type in ["segmentado", "passaro_unico"]:
+            classes_validas = y_treino.value_counts()[lambda x: x >= cv_splits].index
+            mask_treino = y_treino.isin(classes_validas)
+            mask_teste = y_teste.isin(classes_validas)
+
+            X_treino = X_treino[mask_treino]
+            y_treino = y_treino[mask_treino]
+            X_teste = X_teste[mask_teste]
+            y_teste = y_teste[mask_teste]
         
         fold_archive_X_treino = os.path.join(path_folds, f"X_treino_fold_{foldId + 1}.pkl")
         fold_archive_y_treino = os.path.join(path_folds, f"y_treino_fold_{foldId + 1}.pkl")
         fold_archive_X_teste = os.path.join(path_folds, f"X_teste_fold_{foldId + 1}.pkl")
         fold_archive_y_teste = os.path.join(path_folds, f"y_teste_fold_{foldId + 1}.pkl")
-
-        if(not os.path.exists(path_folds)):
-            os.makedirs(path_folds, exist_ok=True)
             
         with open(fold_archive_X_treino, "wb") as f:
             pickle.dump(X_treino, f)
@@ -132,7 +164,8 @@ def do_cv_svm(X, y, ka, cv_splits, groups, Cs=[1], gammas=['scale']):
         else:
             print(f"Criando modelo do fold {foldId + 1}...")
 
-            X_treino, X_val, y_treino, y_val = train_test_split(X_treino, y_treino, stratify=y_treino, test_size=0.2, random_state=1)
+            X_treino, X_val, y_treino, y_val = train_test_split(
+                X_treino, y_treino, stratify=y_treino, test_size=0.2, random_state=1)
 
             ss = StandardScaler()
             ss.fit(X_treino)
@@ -143,7 +176,6 @@ def do_cv_svm(X, y, ka, cv_splits, groups, Cs=[1], gammas=['scale']):
             svm, _, _ = selecionar_melhor_svm(ka, Cs, gammas, X_treino, X_val, y_treino, y_val)
             y_pred = svm.predict(X_teste)
             y_proba = svm.predict_proba(X_teste)
-        
         
             matriz_info = {
                 "fold": foldId,
@@ -160,7 +192,6 @@ def do_cv_svm(X, y, ka, cv_splits, groups, Cs=[1], gammas=['scale']):
                 pickle.dump(svm, f_modelo)
             print(f"Modelo do fold {foldId + 1} salvo em {modelo_filename}")
             
-            
         f1 = f1_score(y_teste, y_pred, average="macro")
         
         desconhecidas = (~y_teste.isin(svm.classes_)).sum()
@@ -171,8 +202,6 @@ def do_cv_svm(X, y, ka, cv_splits, groups, Cs=[1], gammas=['scale']):
         
         y_teste_filtrado = y_teste[mask]
         y_proba_filtrado = y_proba[mask.values]
-        X_teste_filtrado = X_teste[mask.values]
-        
         
         topk = top_k_accuracy_score(y_teste_filtrado, y_proba_filtrado, k=ka, labels=svm.classes_)
         printResultados(svm, X_teste, y_teste, ka)
@@ -182,33 +211,31 @@ def do_cv_svm(X, y, ka, cv_splits, groups, Cs=[1], gammas=['scale']):
     
     return acuracias, topkScores
 
-def printResultados(svm, X_test_scaled, y_test, ka):
-    y_proba = svm.predict_proba(X_test_scaled)
-    y_pred = svm.predict(X_test_scaled)
-
-    f1 = f1_score(y_test, y_pred, average="macro")
-    
-    mask = y_test.isin(svm.classes_)
-    y_test_filtrado = y_test[mask]
-    y_proba_filtrado = y_proba[mask.values]
-    classes_presentes = npy.intersect1d(svm.classes_, npy.unique(y_test_filtrado))
-    
-    idxs = [npy.where(svm.classes_ == c)[0][0] for c in classes_presentes]
-    y_proba_filtrado = y_proba_filtrado[:, idxs]
-    
-    topk_acc = top_k_accuracy_score(y_test_filtrado, y_proba_filtrado, k=ka, labels=classes_presentes)
-
-    print(f"F1-score do SVM: {f1:.2f}")
-    print(f"Top-{ka} Accuracy: {topk_acc:.2f}")
-    #print(classification_report(y_test, y_pred))
-
-    return topk_acc
-
 def main():
+    cv = 10 # Cross Validation
     
-    k = 5 # Hiperparâmetro Top-K
+    ka = 5 # Hiperparâmetro do Top-K
     
-    dataframePath = "../dataframes/dataframeAudioCompleto.pkl" # Dataframe de treino
+    # Seleção do dataset
+    print("Selecione o tipo de dataset:")
+    print("1 - Segmentado")
+    print("2 - Completo")
+    print("3 - Pássaro Único")
+    
+    choice = input("Digite sua escolha (1-3): ").strip()
+    
+    if choice == "1":
+        dataframePath = "../dataframes/dataframeSegmentado.pkl"
+        dataset_type = "segmentado"
+    elif choice == "2":
+        dataframePath = "../dataframes/dataframeAudioCompleto.pkl"
+        dataset_type = "completo"
+    elif choice == "3":
+        dataframePath = "../dataframes/dataframeAudiosPassaroUnico.pkl"
+        dataset_type = "passaro_unico"
+    else:
+        print("Escolha inválida!")
+        return
 
     if os.path.exists(dataframePath):
         with open(dataframePath, "rb") as readFile:
@@ -218,14 +245,11 @@ def main():
         print("Dataframe não encontrado!")
         return
 
-    X = df.drop(columns=["roi_label", "audioSource"]) # x = features
-    y = df["roi_label"] # y = passaros
-    groups = df["audioSource"]# variavel para separar corretamente os conjuntos no Skfold, com base no audio de origem
-    # cortes vindos do mesmo audio so estarao ou em treino ou em teste, nunca nos dois
+    X = df.drop(columns=["roi_label", "audioSource"])
+    y = df["roi_label"]
+    groups = df["audioSource"]
 
-    print(X.shape)
-    
-    cv = 10
+    print(f"Quantidade de amostras: {X.shape}")
     
     counts = y.value_counts()
     classes_validas = counts[counts >= cv].index
@@ -234,12 +258,16 @@ def main():
     y = y[filtro]
     groups = groups[filtro]
     
-    acuracias, topkAcuracias = do_cv_svm(X, y, k, cv, groups, Cs=[1, 10, 100, 1000], gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4])
+    acuracias, topkAcuracias = do_cv_svm(
+        X, y, ka, cv, groups, dataset_type, 
+        Cs=[1, 10, 100, 1000], 
+        gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4]
+    )
     
     print("\n")
-    if(dataframePath == "dataframes/dataframeSegmentado.pkl"):
+    if dataset_type == "segmentado":
         print("--TESTE ÁUDIOS SEGMENTADOS--")
-    elif(dataframePath == "dataframes/dataframeAudioCompleto.pkl"):
+    elif dataset_type == "completo":
         print("--TESTE ÁUDIOS COMPLETOS--")
     else:
         print("--TESTE ÁUDIOS PÁSSARO ÚNICO--")
@@ -247,12 +275,13 @@ def main():
     print("SCORES SVM: \n")
     
     print("f1-Score Macro:")
-    print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f" % (min(acuracias), max(acuracias), npy.mean(acuracias), npy.std(acuracias)))
+    print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f" % (
+        min(acuracias), max(acuracias), npy.mean(acuracias), npy.std(acuracias)))
     
-    print(f"Top-K Score (Top-{k}):")
-    print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f" % (min(topkAcuracias), max(topkAcuracias), npy.mean(topkAcuracias), npy.std(topkAcuracias)))
+    print(f"Top-K Score (Top-{ka}):")
+    print("min: %.2f, max: %.2f, avg +- std: %.2f+-%.2f" % (
+        min(topkAcuracias), max(topkAcuracias), npy.mean(topkAcuracias), npy.std(topkAcuracias)))
 
-    
 if __name__ == '__main__':
     startTime = datetime.now()
     main()
