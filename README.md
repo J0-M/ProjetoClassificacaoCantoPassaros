@@ -3,7 +3,7 @@
 Colabodores: João Marcos Avancini, Juliano Henrique Foleis e Raquel Real Haagsma
 
 # To-Do List
-- [x] Unificação dos códigos de classificadores em apenas um, com diferenciação dos caminhos de dataset e pastas de saída
+- [ X ] Unificação dos códigos de classificadores em apenas um, com diferenciação dos caminhos de dataset e pastas de saída
 - [ ] Adicionar Pipeline e GridSearch
 - [ ] Implementar SKB e matrizes de confusão
 - [ ] Otimizar janelamento e parametros STFT
