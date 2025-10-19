@@ -15,7 +15,7 @@ def loadDataframe(pickle_path):
 
 def dataInfo(dataframe):
     if dataframe is not None:
-        quantidade_de_audios = len(dataframe["audioSource"].unique())
+        quantidade_de_audios = len(dataframe)
         
         quantidade_de_especies = dataframe["roi_label"].nunique()
 
