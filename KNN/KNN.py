@@ -218,15 +218,15 @@ def main():
     if choice == "1":
         dataframePath = "../dataframes/dataframeSegmentado.pkl"
         dataset_type = "segmentado"
-        ka = 5
+        
     elif choice == "2":
         dataframePath = "../dataframes/dataframeAudioCompleto.pkl"
         dataset_type = "completo"
-        ka = 5
+        
     elif choice == "3":
         dataframePath = "../dataframes/dataframeAudiosPassaroUnico.pkl"
         dataset_type = "passaro_unico"
-        ka = 3
+        
     else:
         print("Escolha inválida!")
         return
