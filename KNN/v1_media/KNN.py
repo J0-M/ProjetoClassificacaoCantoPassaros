@@ -11,6 +11,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
+DATA_VERSION = "v1_media"
 
 ########## CONFIGURAÇÃO LOGGING #################
 
@@ -28,21 +29,21 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_dataframe="../dataframes/v1_media/dataframeSegmentado.pkl",
+        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes="matrizesProba_knn_treinoSegmentado",
         path_modelos="modelos_knn_treinoSegmentado",
         path_folds="folds_audiosSegmentados_knn"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
-        path_dataframe="../dataframes/v1_media/dataframeAudioCompleto.pkl",
+        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
         path_matrizes="matrizesProba_knn_treinoCompleto",
         path_modelos="modelos_knn_treinoCompleto",
         path_folds="folds_audiosCompletos_knn"
     ),
     "passaro_unico": DatasetConfig(
         nome="Áudios Pássaro Único",
-        path_dataframe="../dataframes/v1_media/dataframeAudiosPassaroUnico.pkl",
+        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudiosPassaroUnico.pkl",
         path_matrizes="matrizesProba_knn_treinoPassaroUnico",
         path_modelos="modelos_knn_treinoPassaroUnico",
         path_folds="folds_audiosPassaroUnico_knn"
