@@ -13,6 +13,8 @@ from sklearn.model_selection import train_test_split, StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
+DATA_VERSION = "v1_media"
+
 ########## CONFIGURAÇÃO LOGGING #################
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
@@ -27,21 +29,21 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_dataframe="../dataframes/v1_media/dataframeSegmentado.pkl",
+        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes="matrizesProba_svm_treinoSegmentado",
         path_modelos="modelos_svm_treinoSegmentado",
         path_folds="folds_audiosSegmentados_svm"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
-        path_dataframe="../dataframes/v1_media/dataframeAudioCompleto.pkl",
+        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
         path_matrizes="matrizesProba_svm_treinoCompleto",
         path_modelos="modelos_svm_treinoCompleto",
         path_folds="folds_audiosCompletos_svm"
     ),
     "passaro_unico": DatasetConfig(
         nome="Áudios Pássaro Único",
-        path_dataframe="../dataframes/v1_media/dataframeAudiosPassaroUnico.pkl",
+        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudiosPassaroUnico.pkl",
         path_matrizes="matrizesProba_svm_treinoAudiosPassaroUnico",
         path_modelos="modelos_svm_treinoAudiosPassaroUnicoSegmentado",
         path_folds="folds_audiosPassaroUnicoSegmentado_svm"
