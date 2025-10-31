@@ -101,7 +101,7 @@ def main():
     
     dataframeFinal = getFinalDataframe(df)
     
-    with open("../dataframes/dataframeAudioCompleto.pkl", "wb") as file:
+    with open("../dataframes/v1_media/dataframeAudioCompleto.pkl", "wb") as file:
         pickle.dump(dataframeFinal, file) #salva as features normalizadas num pickle
     
     print(dataframeFinal.head)
