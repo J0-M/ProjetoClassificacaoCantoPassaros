@@ -25,7 +25,7 @@ def dataInfo(dataframe):
         print("Dataframe não carregado corretamente!")
 
 def main():
-    pickle_path = "../dataframes/dataframeAudioCompleto.pkl" 
+    pickle_path = "../dataframes/dataframeSegmentado.pkl" 
     
     dataframe = loadDataframe(pickle_path)
     
