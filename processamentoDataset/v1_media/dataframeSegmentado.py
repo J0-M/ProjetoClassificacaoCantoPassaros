@@ -8,6 +8,8 @@ import os
 import numpy as npy
 import pickle
 
+DATA_VERSION = "v1_media"
+
 folderFeaturesPath = "C:\\Users\\Pichau\\Desktop\\texturasAudios"
 
 audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
@@ -146,7 +148,7 @@ def main():
             "zeroCrossRate", "rms"] + [f"mfcc_{i}" for i in range(20)]
     dfCut = pd.DataFrame(data, columns=columns) #cria um dataframe pandas
 
-    with open("../dataframes/v1_media/dataframeSegmentado.pkl", "wb") as file:
+    with open(f"../../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl", "wb") as file:
         pickle.dump(dfCut, file) #salva as features normalizadas num pickle
     
     print(dfCut.head())

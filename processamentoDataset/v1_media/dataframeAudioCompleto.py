@@ -6,6 +6,8 @@ import pickle
 
 from datetime import datetime
 
+DATA_VERSION = "v1_media"
+
 pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
 audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
 
@@ -101,7 +103,7 @@ def main():
     
     dataframeFinal = getFinalDataframe(df)
     
-    with open("../dataframes/v1_media/dataframeAudioCompleto.pkl", "wb") as file:
+    with open(f"../../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl", "wb") as file:
         pickle.dump(dataframeFinal, file) #salva as features normalizadas num pickle
     
     print(dataframeFinal.head)
