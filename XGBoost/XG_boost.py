@@ -111,6 +111,10 @@ def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classe
 def exibir_resultados(model, X_test, y_test, ka):
     y_pred = model.predict(X_test)
     y_proba = model.predict_proba(X_test)
+    
+    if len(y_test) != len(y_pred):
+        logging.error(f"Tamanho inconsistente: y_test ({len(y_test)}) e y_pred ({len(y_pred)})")
+        return
 
     f1 = f1_score(y_test, y_pred, average="macro")
 
