@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from joblib import Parallel, delayed
 
 from xgboost import XGBClassifier
+from xgboost.callback import EarlyStopping
 from sklearn.model_selection import train_test_split, StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import f1_score, top_k_accuracy_score
@@ -68,11 +69,22 @@ def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classe
             objective="multi:softprob",
             num_class=num_classes,
             tree_method="hist", #aproximately Greedy Algorithm
-            n_jobs=n_jobs,
+            #n_jobs=n_jobs,
+            n_jobs=1,
             eval_metric="mlogloss",
+            n_estimators=300,
+            early_stopping_rounds=20,
             **params
         )
-        model.fit(X_train, y_train)
+        
+        model.fit(
+            X_train, y_train,
+            eval_set=[(X_val, y_val)],
+            verbose=False
+        )
+        
+        logging.info(f"Best iteration: {model.best_iteration}")
+        
         pred = model.predict(X_val)
         return f1_score(y_val, pred, average="macro")
 
@@ -93,15 +105,18 @@ def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classe
         objective="multi:softprob",
         num_class=num_classes,
         tree_method="hist",
-        predictor="cpu_predictor",
-        n_jobs=n_jobs,
+        #n_jobs=n_jobs,
+        n_jobs=1,
         eval_metric="mlogloss",
+        n_estimators=300,
+        early_stopping_rounds=20,
         **best_params
     )
 
     final_model.fit(
-        npy.vstack((X_train, X_val)),
-        npy.concatenate([y_train, y_val])
+        X_train, y_train,
+        eval_set=[(X_val, y_val)],
+        verbose=False
     )
 
     return final_model, best_params, best_score
@@ -135,8 +150,6 @@ def exibir_resultados(model, X_test, y_test, ka):
 def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
 
     preparar_pastas(config.path_matrizes, config.path_modelos, config.path_folds)
-    
-    logging.info("LabelEncoder criado.")
 
     counts = pd.Series(y).value_counts()
     classes_validas = counts[counts >= cv_splits].index
@@ -144,30 +157,34 @@ def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
     
     X, y, groups = X[filtro], y[filtro], groups[filtro]
     
-    le = LabelEncoder()
-    y_encoded = le.fit_transform(y)
-    
     acuracias, topkScores = [], []
 
     skf = StratifiedGroupKFold(n_splits=cv_splits, shuffle=True, random_state=1)
-    
-    unique_classes = npy.unique(y_encoded)
-    num_classes = len(unique_classes)
 
-    for foldId, (treino_idx, teste_idx) in enumerate(skf.split(X, y_encoded, groups)):
+    for foldId, (train_idx, test_idx) in enumerate(skf.split(X, y, groups)):
 
         logging.info(f"\n=== Fold {foldId + 1} ===")
 
-        X_treino_raw = X.iloc[treino_idx]
-        y_treino_raw = y.iloc[treino_idx]
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
+        
+        le = LabelEncoder()
+        y_train_encoded = le.fit_transform(y_train)
+        
+        mask_teste = y_test.isin(le.classes_)
+        X_test = X_test[mask_teste]
+        y_test = y_test[mask_teste]
 
-        X_teste_raw = X.iloc[teste_idx]
-        y_teste_raw = y.iloc[teste_idx]
+        y_test_encoded = le.transform(y_test)
 
-        salvar_objeto(X_treino_raw, os.path.join(config.path_folds, f"X_treino_fold_{foldId + 1}.pkl"))
-        salvar_objeto(y_treino_raw, os.path.join(config.path_folds, f"y_treino_fold_{foldId + 1}.pkl"))
-        salvar_objeto(X_teste_raw, os.path.join(config.path_folds, f"X_teste_fold_{foldId + 1}.pkl"))
-        salvar_objeto(y_teste_raw, os.path.join(config.path_folds, f"y_teste_fold_{foldId + 1}.pkl"))
+        num_classes = len(le.classes_)
+
+        salvar_objeto(X_train, os.path.join(config.path_folds, f"X_treino_fold_{foldId + 1}.pkl"))
+        salvar_objeto(y_train, os.path.join(config.path_folds, f"y_treino_fold_{foldId + 1}.pkl"))
+        salvar_objeto(X_test, os.path.join(config.path_folds, f"X_teste_fold_{foldId + 1}.pkl"))
+        salvar_objeto(y_test, os.path.join(config.path_folds, f"y_teste_fold_{foldId + 1}.pkl"))
 
         modelo_filename = os.path.join(config.path_modelos, f"xgb_model_fold_{foldId + 1}.pkl")
         matriz_filename = os.path.join(config.path_matrizes, f"matriz_{foldId + 1}.pkl")
@@ -178,16 +195,16 @@ def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
             modelo = carregar_objeto(modelo_filename)
 
             ss = StandardScaler()
-            ss.fit(X_treino_raw)
-            X_teste = ss.transform(X_teste_raw)
+            ss.fit(X_train)
+            X_test = ss.transform(X_test)
 
-            y_pred = modelo.predict(X_teste)
-            y_proba = modelo.predict_proba(X_teste)
+            y_pred = modelo.predict(X_test)
+            y_proba = modelo.predict_proba(X_test)
 
             if not os.path.exists(matriz_filename):
                 salvar_objeto(
                     {"fold": foldId,
-                     "y_true": y_encoded[teste_idx],
+                     "y_true": y_test_encoded,
                      "y_proba": y_proba,
                      "classes": modelo.classes_},
                     matriz_filename)
@@ -197,13 +214,26 @@ def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
 
             logging.info(f"Treinando modelo do fold {foldId + 1}...")
 
-            X_train, y_train = X_treino_raw, y_encoded[treino_idx]
-            X_test, y_test = X_teste_raw, y_encoded[teste_idx]
+            _, counts = npy.unique(y_train_encoded, return_counts=True)
 
-            X_train, X_val, y_train, y_val = train_test_split(
-                X_train, y_train,
-                stratify=y_train, test_size=0.2, random_state=1
-            )
+            if counts.min() < 2:
+                logging.warning(
+                    f"Fold {foldId + 1}: classe com < 2 amostras no treino "
+                    "→ split sem estratificação"
+                )
+                
+                X_train, X_val, y_train, y_val = train_test_split(
+                    X_train, y_train_encoded,
+                    test_size=0.2,
+                    random_state=1
+                )
+            else:
+                X_train, X_val, y_train, y_val = train_test_split(
+                    X_train, y_train_encoded,
+                    stratify=y_train_encoded,
+                    test_size=0.2,
+                    random_state=1
+                )
 
             ss = StandardScaler()
             ss.fit(X_train)
@@ -224,24 +254,18 @@ def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
 
             salvar_objeto(
                 {"fold": foldId,
-                 "y_true": y_test,
+                 "y_true": y_test_encoded,
                  "y_proba": y_proba,
                  "classes": modelo.classes_},
                 matriz_filename)
 
             salvar_objeto(modelo, modelo_filename)
             logging.info(f"Modelo salvo no fold {foldId + 1}.")
-            
-        y_test_enc = y_encoded[teste_idx]
-        mask = npy.isin(y_test_enc, modelo.classes_)
 
-        y_test_filt = y_test_enc[mask]
-        y_proba_filt = y_proba[mask]
+        f1 = f1_score(y_test_encoded, y_pred, average="macro")
+        topk = top_k_accuracy_score(y_test_encoded, y_proba, k=ka, labels=modelo.classes_)
 
-        f1 = f1_score(y_test_enc, y_pred, average="macro")
-        topk = top_k_accuracy_score(y_test_filt, y_proba_filt, k=ka, labels=modelo.classes_)
-
-        exibir_resultados(modelo, X_teste, y_test_enc, ka)
+        exibir_resultados(modelo, X_test, y_test_encoded, ka)
 
         acuracias.append(f1)
         topkScores.append(topk)
@@ -277,11 +301,11 @@ def main():
     groups = df["audioSource"]
 
     param_grid = {
-        "max_depth": [4, 6, 8],
+        "max_depth": [4, 6],
         "learning_rate": [0.05, 0.1],
         "subsample": [0.7, 1.0],
-        "colsample_bytree": [0.7, 1.0],
-        "n_estimators": [200, 400]
+        "colsample_bytree": [0.7, 1.0]
+        #"n_estimators": [200, 400]
     }
 
     acuracias, topkAcuracias = do_cv_xgb(X, y, ka, cv, groups, config, param_grid)
