@@ -203,6 +203,7 @@ def main():
     ka = 5  # Hiperparâmetro do Top-K
     
     print(f"VERSÃO = {DATA_VERSION}")
+    print(f"Top-K = {ka}")
     
     # Seleção do dataset
     print("Selecione o tipo de dataset:")
