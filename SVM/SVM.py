@@ -217,9 +217,10 @@ def do_cv_svm(X, y, ka, cv_splits, groups, config: DatasetConfig, Cs=[1], gammas
 def main():
     cv = 10 # Cross Validation
     
-    ka = 3 # Hiperparâmetro do Top-K
+    ka = 5 # Hiperparâmetro do Top-K
     
     print(f"VERSÃO = {DATA_VERSION}")
+    print(f"Top-K = {ka}")
     
     logging.info("Selecione o tipo de dataset:\n1 - Segmentado\n2 - Completo\n3 - Pássaro Único")
     
