@@ -34,14 +34,14 @@ DATASET_CONFIGS = {
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_xgb_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_xgb_treinoSegmentado",
-        path_folds=f"{DATA_VERSION}/folds_audiosSegmentados_xgb"
+        path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_xgb_treinoCompleto",
         path_modelos=f"{DATA_VERSION}/modelos_xgb_treinoCompleto",
-        path_folds=f"{DATA_VERSION}/folds_audiosCompletos_xgb"
+        path_folds=f"../folds/{DATA_VERSION}/completo/stratified_group_kfold_10.pkl"
     )
 }
 
@@ -147,53 +147,51 @@ def exibir_resultados(model, X_test, y_test, ka):
 
 #################################################
 
-def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
+def do_cv_xgb(X, y, ka, config, param_grid):
 
-    preparar_pastas(config.path_matrizes, config.path_modelos, config.path_folds)
+    preparar_pastas(config.path_matrizes, config.path_modelos)
 
-    counts = pd.Series(y).value_counts()
-    classes_validas = counts[counts >= cv_splits].index
-    filtro = npy.isin(y, classes_validas)
-
-    X, y, groups = X[filtro], y[filtro], groups[filtro]
+    if not os.path.exists(config.path_folds):
+        raise FileNotFoundError("Folds ainda não foram gerados.")
+    
+    folds = carregar_objeto(config.path_folds)
 
     acuracias, topkScores = [], []
 
-    skf = StratifiedGroupKFold(n_splits=cv_splits, shuffle=True, random_state=1)
+    for fold_dict in folds:
 
-    for foldId, (train_idx, test_idx) in enumerate(skf.split(X, y, groups)):
+        foldId = fold_dict["fold"]
+        idx_treino = fold_dict["train_idx"]
+        idx_teste = fold_dict["test_idx"]
 
         logging.info(f"\n=== Fold {foldId + 1} ===")
 
-        X_train = X.iloc[train_idx]
-        y_train = y.iloc[train_idx]
-        X_test = X.iloc[test_idx]
-        y_test = y.iloc[test_idx]
+        X_train = X.iloc[idx_treino]
+        y_train = y.iloc[idx_treino]
 
-        salvar_objeto(X_train, os.path.join(config.path_folds, f"X_treino_fold_{foldId + 1}.pkl"))
-        salvar_objeto(y_train, os.path.join(config.path_folds, f"y_treino_fold_{foldId + 1}.pkl"))
-        salvar_objeto(X_test, os.path.join(config.path_folds, f"X_teste_fold_{foldId + 1}.pkl"))
-        salvar_objeto(y_test, os.path.join(config.path_folds, f"y_teste_fold_{foldId + 1}.pkl"))
+        X_test = X.iloc[idx_teste]
+        y_test = y.iloc[idx_teste]
 
         modelo_filename = os.path.join(
             config.path_modelos, f"xgb_model_fold_{foldId + 1}.pkl"
         )
+
         matriz_filename = os.path.join(
             config.path_matrizes, f"matriz_{foldId + 1}.pkl"
         )
 
         if os.path.exists(modelo_filename):
 
-            logging.info(f"Carregando modelo existente do fold {foldId + 1}...")
+            logging.info("Carregando modelo salvo...")
 
             obj = carregar_objeto(modelo_filename)
             modelo = obj["modelo"]
             le = obj["label_encoder"]
             ss = obj["scaler"]
 
-            mask_teste = y_test.isin(le.classes_)
-            X_test = X_test[mask_teste]
-            y_test = y_test[mask_teste]
+            mask_test = y_test.isin(le.classes_)
+            X_test = X_test[mask_test]
+            y_test = y_test[mask_test]
 
             y_test_encoded = le.transform(y_test)
             X_test = ss.transform(X_test)
@@ -201,43 +199,29 @@ def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
             y_pred = modelo.predict(X_test)
             y_proba = modelo.predict_proba(X_test)
 
-            if not os.path.exists(matriz_filename):
-                salvar_objeto(
-                    {
-                        "fold": foldId,
-                        "y_true": y_test_encoded,
-                        "y_proba": y_proba,
-                        "classes": modelo.classes_,
-                    },
-                    matriz_filename,
-                )
-                logging.info(f"Matriz criada para fold {foldId + 1}.")
-
         else:
 
-            logging.info(f"Treinando modelo do fold {foldId + 1}...")
+            counts = y_train.value_counts()
 
-            _, counts = npy.unique(y_train, return_counts=True)
-
-            if counts.min() < 2:
-                logging.warning(
-                    f"Fold {foldId + 1}: classe com < 2 amostras no treino "
-                    "→ split sem estratificação"
-                )
-                X_tr, X_val, y_tr_raw, y_val_raw = train_test_split(
-                    X_train,
-                    y_train,
-                    test_size=0.2,
-                    random_state=1,
-                )
-            else:
+            if counts.min() >= 2:
                 X_tr, X_val, y_tr_raw, y_val_raw = train_test_split(
                     X_train,
                     y_train,
                     stratify=y_train,
                     test_size=0.2,
-                    random_state=1,
+                    random_state=1
                 )
+            else:
+                logging.warning(
+                    "Classe com apenas 1 amostra → split sem estratificação"
+                )
+                X_tr, X_val, y_tr_raw, y_val_raw = train_test_split(
+                    X_train,
+                    y_train,
+                    test_size=0.2,
+                    random_state=1
+                )
+            
 
             le = LabelEncoder()
             y_tr = le.fit_transform(y_tr_raw)
@@ -245,22 +229,14 @@ def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
             mask_val = y_val_raw.isin(le.classes_)
             X_val = X_val[mask_val]
             y_val_raw = y_val_raw[mask_val]
-
             y_val = le.transform(y_val_raw)
 
-            mask_teste = y_test.isin(le.classes_)
-            X_test = X_test[mask_teste]
-            y_test = y_test[mask_teste]
+            mask_test = y_test.isin(le.classes_)
+            X_test = X_test[mask_test]
+            y_test = y_test[mask_test]
             y_test_encoded = le.transform(y_test)
 
             num_classes = len(le.classes_)
-            
-            train_unique = npy.unique(y_tr)
-            if len(train_unique) < num_classes:
-                logging.warning(
-                    f"Fold {foldId + 1}: Apenas {len(train_unique)} classes "
-                    f"no treino de {num_classes} totais"
-                )
 
             ss = StandardScaler()
             ss.fit(X_tr)
@@ -270,11 +246,25 @@ def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
             X_test = ss.transform(X_test)
 
             modelo, _, _ = selecionar_melhor_xgb(
-                param_grid, X_tr, X_val, y_tr, y_val, num_classes
+                param_grid,
+                X_tr,
+                X_val,
+                y_tr,
+                y_val,
+                num_classes
             )
 
             y_pred = modelo.predict(X_test)
             y_proba = modelo.predict_proba(X_test)
+
+            salvar_objeto(
+                {
+                    "modelo": modelo,
+                    "label_encoder": le,
+                    "scaler": ss,
+                },
+                modelo_filename,
+            )
 
             salvar_objeto(
                 {
@@ -286,18 +276,10 @@ def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
                 matriz_filename,
             )
 
-            salvar_objeto(
-                {
-                    "modelo": modelo,
-                    "label_encoder": le,
-                    "scaler": ss,
-                },
-                modelo_filename,
-            )
-
             logging.info(f"Modelo salvo no fold {foldId + 1}.")
 
         f1 = f1_score(y_test_encoded, y_pred, average="macro")
+        
         topk = top_k_accuracy_score(
             y_test_encoded, y_proba, k=ka, labels=modelo.classes_
         )
@@ -314,7 +296,6 @@ def do_cv_xgb(X, y, ka, cv_splits, groups, config, param_grid):
 
 def main():
 
-    cv = 10
     ka = 5
 
     print(f"VERSÃO = {DATA_VERSION}")
@@ -335,7 +316,6 @@ def main():
 
     X = df.drop(columns=["roi_label", "audioSource"])
     y = df["roi_label"]
-    groups = df["audioSource"]
 
     param_grid = {
         "max_depth": [4, 6],
@@ -345,7 +325,7 @@ def main():
         #"n_estimators": [200, 400]
     }
 
-    acuracias, topkAcuracias = do_cv_xgb(X, y, ka, cv, groups, config, param_grid)
+    acuracias, topkAcuracias = do_cv_xgb(X, y, ka, config, param_grid)
 
     print(f"\n-- TESTE {config.nome.upper()} --")
     print("F1-Score Macro:")
