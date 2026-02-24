@@ -23,7 +23,7 @@ class DatasetConfig:
     path_dataframe: str
     path_matrizes: str
     path_modelos: str
-    path_folds: str
+    path_folds: str # somente leitura
 
     
 DATASET_CONFIGS = {
@@ -32,21 +32,14 @@ DATASET_CONFIGS = {
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_knn_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_knn_treinoSegmentado",
-        path_folds=f"{DATA_VERSION}/folds_audiosSegmentados_knn"
+        path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_knn_treinoCompleto",
         path_modelos=f"{DATA_VERSION}/modelos_knn_treinoCompleto",
-        path_folds=f"{DATA_VERSION}/folds_audiosCompletos_knn"
-    ),
-    "passaro_unico": DatasetConfig(
-        nome="Áudios Pássaro Único",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudiosPassaroUnico.pkl",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_knn_treinoPassaroUnico",
-        path_modelos=f"{DATA_VERSION}/modelos_knn_treinoPassaroUnico",
-        path_folds=f"{DATA_VERSION}/folds_audiosPassaroUnico_knn"
+        path_folds=f"../folds/{DATA_VERSION}/completo/stratified_group_kfold_10.pkl"
     ),
 }
 
@@ -115,88 +108,123 @@ def exibir_resultados(knn, X_test_scaled, y_test, ka):
     logging.info(f"F1-score do KNN: {f1:.2f}")
     logging.info(f"Top-{ka} Accuracy: {topk_acc:.2f}")
     
-def treinar_knn_com_validacao_cruzada(X, y, ka, groups, config: DatasetConfig):
+def treinar_knn_com_validacao_cruzada(X, y, ka, config: DatasetConfig):
+
+    preparar_pastas(config.path_matrizes, config.path_modelos)
     
-    k_vias = 10
-    skf = StratifiedGroupKFold(n_splits=k_vias, shuffle=True, random_state=10)
+    if not os.path.exists(config.path_folds):
+        raise FileNotFoundError("Folds ainda não foram gerados.")
     
-    preparar_pastas(config.path_matrizes, config.path_modelos, config.path_folds)
-    
-    counts = y.value_counts()
-    classes_validas = counts[counts >= k_vias].index
-    filtro = y.isin(classes_validas)
-    
-    X, y, groups = X[filtro], y[filtro], groups[filtro]
+    folds = carregar_objeto(config.path_folds)
     
     acuracias, topKScores = [], []
         
-    for foldId, (idx_treino, idx_teste) in enumerate(skf.split(X, y, groups)):
-        
+    for fold_dict in folds:
+
+        foldId = fold_dict["fold"]
+        idx_treino = fold_dict["train_idx"]
+        idx_teste = fold_dict["test_idx"]
+
         logging.info(f"\n=== Fold {foldId + 1} ===")
-        
-        sources_train = set(groups.iloc[idx_treino])
-        sources_test = set(groups.iloc[idx_teste])
-        intersec = sources_train.intersection(sources_test)
-        assert len(intersec) == 0, f"Vazamento detectado em fold {foldId + 1} nos audioSource: {intersec}"
-        
-        matriz_filename = os.path.join(config.path_matrizes, f"matriz_{foldId + 1}.pkl")
-        modelo_filename = os.path.join(config.path_modelos, f"KNN_model_fold_{foldId + 1}.pkl")
-        
-        X_treino, y_treino = X.iloc[idx_treino], y.iloc[idx_treino]
-        X_teste, y_teste = X.iloc[idx_teste], y.iloc[idx_teste]
-        
-        salvar_objeto(X_treino, os.path.join(config.path_folds, f"X_treino_fold_{foldId + 1}.pkl"))
-        salvar_objeto(y_treino, os.path.join(config.path_folds, f"y_treino_fold_{foldId + 1}.pkl"))
-        salvar_objeto(X_teste, os.path.join(config.path_folds, f"X_teste_fold_{foldId + 1}.pkl"))
-        salvar_objeto(y_teste, os.path.join(config.path_folds, f"y_teste_fold_{foldId + 1}.pkl"))
-        
+
+        X_treino = X.iloc[idx_treino]
+        y_treino = y.iloc[idx_treino]
+
+        X_teste = X.iloc[idx_teste]
+        y_teste = y.iloc[idx_teste]
+
+        matriz_filename = os.path.join(
+            config.path_matrizes, f"matriz_{foldId + 1}.pkl"
+        )
+
+        modelo_filename = os.path.join(
+            config.path_modelos, f"KNN_model_fold_{foldId + 1}.pkl"
+        )
+
         if os.path.exists(modelo_filename):
-            logging.info(f"Carregando modelo salvo do fold {foldId + 1}...")
+            logging.info("Carregando modelo salvo...")
             knn = carregar_objeto(modelo_filename)
+
             ss = StandardScaler().fit(X_treino)
             X_teste = ss.transform(X_teste)
             
         else:
-            logging.info(f"Treinando novo modelo para o fold {foldId + 1}...")
+            logging.info("Treinando modelo...")
             
+            # Remover classes com menos de 2 exemplos no treino
             counts_treino = y_treino.value_counts()
-            classes_validas_treino = counts_treino[counts_treino >= 2].index
-            filtro_treino = y_treino.isin(classes_validas_treino)
+            classes_validas = counts_treino[counts_treino >= 2].index
+            mask = y_treino.isin(classes_validas)
 
-            X_treino, y_treino = X_treino[filtro_treino], y_treino[filtro_treino]
+            X_treino = X_treino[mask]
+            y_treino = y_treino[mask]
+
+            X_tr, X_val, y_tr, y_val = train_test_split(
+                X_treino,
+                y_treino,
+                test_size=0.2,
+                stratify=y_treino,
+                shuffle=True,
+                random_state=10
+            )
             
-            X_treino, X_val, y_treino, y_val = train_test_split(
-                X_treino, y_treino, test_size=0.2, stratify=y_treino, shuffle=True, random_state=10)
+            ss = StandardScaler().fit(X_tr)
 
-            ss = StandardScaler().fit(X_treino)
-            X_treino, X_teste, X_val = ss.transform(X_treino), ss.transform(X_teste), ss.transform(X_val)
+            X_tr = ss.transform(X_tr)
+            X_val = ss.transform(X_val)
+            X_teste = ss.transform(X_teste)
 
-            knn, _, _ = selecionar_melhor_k(range(1,30,2), X_treino, X_val, y_treino, y_val, X_teste, y_teste)
+            knn, _, _ = selecionar_melhor_k(
+                range(1, 30, 2),
+                X_tr,
+                X_val,
+                y_tr,
+                y_val,
+                X_teste,
+                y_teste
+            )
             salvar_objeto(knn, modelo_filename)
-        
+
         y_pred = knn.predict(X_teste)
         y_proba = knn.predict_proba(X_teste)
-        
-        matriz_info = {"fold": foldId, "y_true": y_teste.values, "y_proba": y_proba, "classes": knn.classes_}
+
+        matriz_info = {
+            "fold": foldId,
+            "y_true": y_teste.values,
+            "y_proba": y_proba,
+            "classes": knn.classes_
+        }
+
         salvar_objeto(matriz_info, matriz_filename)
 
         f1 = f1_score(y_teste, y_pred, average="macro")
         acuracias.append(f1)
-        
-        desconhecidas = (~y_teste.isin(knn.classes_)).sum()
-        logging.info(f"Amostras com classe 'não vista no treino': {desconhecidas}/{len(y_teste)}")
-        
-        mask = y_teste.isin(set(knn.classes_))
-        y_teste_filtrado, y_proba_filtrado = y_teste[mask], y_proba[mask.values]
-        
-        classes_presentes = npy.intersect1d(knn.classes_, npy.unique(y_teste_filtrado))
-        idxs = [npy.where(knn.classes_ == c)[0][0] for c in classes_presentes]
+
+        mask = y_teste.isin(knn.classes_)
+        y_teste_filtrado = y_teste[mask]
+        y_proba_filtrado = y_proba[mask.values]
+
+        classes_presentes = npy.intersect1d(
+            knn.classes_,
+            npy.unique(y_teste_filtrado)
+        )
+
+        idxs = [npy.where(knn.classes_ == c)[0][0]
+                for c in classes_presentes]
+
         y_proba_filtrado = y_proba_filtrado[:, idxs]
-        
-        topKScores.append(top_k_accuracy_score(y_teste_filtrado, y_proba_filtrado, k=ka, labels=classes_presentes))
-        
+
+        topKScores.append(
+            top_k_accuracy_score(
+                y_teste_filtrado,
+                y_proba_filtrado,
+                k=ka,
+                labels=classes_presentes
+            )
+        )
+
         exibir_resultados(knn, X_teste, y_teste, ka)
-    
+
     return acuracias, topKScores
 
 def main():
@@ -209,10 +237,9 @@ def main():
     print("Selecione o tipo de dataset:")
     print("1 - Segmentado")
     print("2 - Completo")
-    print("3 - Pássaro Único")
     
-    opcoes = {"1": "segmentado", "2": "completo", "3": "passaro_unico"}
-    tipo = opcoes.get(input("Digite sua escolha (1-3): ").strip())
+    opcoes = {"1": "segmentado", "2": "completo"}
+    tipo = opcoes.get(input("Digite sua escolha: ").strip())
     
     if tipo is None:
         logging.error("Escolha inválida!")
@@ -225,16 +252,19 @@ def main():
         return
     
     df = carregar_objeto(config.path_dataframe)
+    
+    df = df.dropna(subset=["roi_label"])
+    df["roi_label"] = df["roi_label"].astype(str)
+    
     logging.info("Dataframe carregado com sucesso!")
 
     X = df.drop(columns=["roi_label", "audioSource"])
     y = df["roi_label"]
-    groups = df["audioSource"]
 
     logging.info(f"Quantidade de amostras: {X.shape}")
     logging.info(f"Quantidade de espécies: {y.nunique()}")
     
-    acuracias, topKAcuracias = treinar_knn_com_validacao_cruzada(X, y, ka, groups, config)
+    acuracias, topKAcuracias = treinar_knn_com_validacao_cruzada(X, y, ka, config)
     
     print(f"\n-- TESTE {config.nome.upper()} --")
     print("F1-Score Macro:")
