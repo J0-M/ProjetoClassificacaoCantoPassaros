@@ -32,21 +32,14 @@ DATASET_CONFIGS = {
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_svm_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_svm_treinoSegmentado",
-        path_folds=f"{DATA_VERSION}/folds_audiosSegmentados_svm"
+        path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_svm_treinoCompleto",
         path_modelos=f"{DATA_VERSION}/modelos_svm_treinoCompleto",
-        path_folds=f"{DATA_VERSION}/folds_audiosCompletos_svm"
-    ),
-    "passaro_unico": DatasetConfig(
-        nome="Áudios Pássaro Único",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudiosPassaroUnico.pkl",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_svm_treinoAudiosPassaroUnico",
-        path_modelos=f"{DATA_VERSION}/modelos_svm_treinoAudiosPassaroUnicoSegmentado",
-        path_folds=f"{DATA_VERSION}/folds_audiosPassaroUnicoSegmentado_svm"
+        path_folds=f"../folds/{DATA_VERSION}/completo/stratified_group_kfold_10.pkl"
     ),
 }
 
@@ -121,65 +114,72 @@ def exibir_resultados(svm, X_test_scaled, y_test, ka):
     logging.info(f"Top-{ka} Accuracy: {topk_acc:.2f}")
 
 
-def do_cv_svm(X, y, ka, cv_splits, groups, config: DatasetConfig, Cs=[1], gammas=['scale']):
-    skf = StratifiedGroupKFold(n_splits=cv_splits, shuffle=True, random_state=1)
+def do_cv_svm(X, y, ka, config: DatasetConfig, Cs=[1], gammas=['scale']):
 
-    preparar_pastas(config.path_matrizes, config.path_modelos, config.path_folds)
+    preparar_pastas(config.path_matrizes, config.path_modelos)
+    
+    if not os.path.exists(config.path_folds):
+        raise FileNotFoundError("Folds ainda não foram gerados.")
+    
+    folds = carregar_objeto(config.path_folds)
+    
     acuracias, topkScores = [], []
     
-    counts = y.value_counts()
-    classes_validas = counts[counts >= cv_splits].index
-    filtro = y.isin(classes_validas)
-    X, y, groups = X[filtro], y[filtro], groups[filtro]
-    
-    for foldId, (treino_idx, teste_idx) in enumerate(skf.split(X, y, groups)):
+    for fold_dict in folds:
         
+        foldId = fold_dict["fold"]
+        idx_treino = fold_dict["train_idx"]
+        idx_teste = fold_dict["test_idx"]
+
         logging.info(f"\n=== Fold {foldId + 1} ===")
-        
-        sources_train = set(groups.iloc[treino_idx])
-        sources_test = set(groups.iloc[teste_idx])
-        intersec = sources_train.intersection(sources_test)
-        assert len(intersec) == 0, f"Vazamento detectado em fold {foldId + 1} nos audioSource: {intersec}"
-        
-        matriz_filename = os.path.join(config.path_matrizes, f"matriz_{foldId + 1}.pkl")
-        modelo_filename = os.path.join(config.path_modelos, f"svm_model_fold_{foldId + 1}.pkl")
-        
-        ss = StandardScaler()
-        
-        X_treino, y_treino = X.iloc[treino_idx], y.iloc[treino_idx]
-        X_teste, y_teste = X.iloc[teste_idx], y.iloc[teste_idx]
-        
-        if config.nome in ["Áudios Segmentados", "Áudios Pássaro Único"]:
-            classes_validas_fold = y_treino.value_counts()[lambda x: x >= cv_splits].index
-            mask_treino = y_treino.isin(classes_validas_fold)
-            mask_teste = y_teste.isin(classes_validas_fold)
-            X_treino, y_treino = X_treino[mask_treino], y_treino[mask_treino]
-            X_teste, y_teste = X_teste[mask_teste], y_teste[mask_teste]
-        
-        salvar_objeto(X_treino, os.path.join(config.path_folds, f"X_treino_fold_{foldId + 1}.pkl"))
-        salvar_objeto(y_treino, os.path.join(config.path_folds, f"y_treino_fold_{foldId + 1}.pkl"))
-        salvar_objeto(X_teste, os.path.join(config.path_folds, f"X_teste_fold_{foldId + 1}.pkl"))
-        salvar_objeto(y_teste, os.path.join(config.path_folds, f"y_teste_fold_{foldId + 1}.pkl"))
+
+        X_treino = X.iloc[idx_treino]
+        y_treino = y.iloc[idx_treino]
+
+        X_teste = X.iloc[idx_teste]
+        y_teste = y.iloc[idx_teste]
+
+        matriz_filename = os.path.join(
+            config.path_matrizes, f"matriz_{foldId + 1}.pkl"
+        )
+
+        modelo_filename = os.path.join(
+            config.path_modelos, f"svm_model_fold_{foldId + 1}.pkl"
+        )
         
         if os.path.exists(modelo_filename):
-            logging.info(f"Carregando modelo do fold {foldId + 1}...")
-            
+            logging.info("Carregando modelo salvo...")
             svm = carregar_objeto(modelo_filename)
+
+            ss = StandardScaler()
             ss.fit(X_treino)
             X_teste = ss.transform(X_teste)
+
             y_pred = svm.predict(X_teste)
             y_proba = svm.predict_proba(X_teste)
-
-            if not os.path.exists(matriz_filename):
-                matriz_info = {"fold": foldId, "y_true": y_teste.values, "y_proba": y_proba, "classes": svm.classes_}
-                salvar_objeto(matriz_info, matriz_filename)
-                logging.info(f"Probabilidades salvas em {matriz_filename}")
         
         else:
             logging.info(f"Criando modelo do fold {foldId + 1}...")
 
-            X_treino, X_val, y_treino, y_val = train_test_split(
-                X_treino, y_treino, stratify=y_treino, test_size=0.2, random_state=1)
+            counts = y_treino.value_counts()
+
+            if counts.min() >= 2:
+                X_treino, X_val, y_treino, y_val = train_test_split(
+                    X_treino,
+                    y_treino,
+                    stratify=y_treino,
+                    test_size=0.2,
+                    random_state=1
+                )
+            else:
+                print("[INFO] Fold contém classe com apenas 1 amostra. Split sem estratificação.")
+                
+                X_treino, X_val, y_treino, y_val = train_test_split(
+                    X_treino,
+                    y_treino,
+                    test_size=0.2,
+                    random_state=1
+                )
 
             ss = StandardScaler()
             ss.fit(X_treino)
@@ -188,12 +188,14 @@ def do_cv_svm(X, y, ka, cv_splits, groups, config: DatasetConfig, Cs=[1], gammas
             X_val = ss.transform(X_val)
 
             svm, _, _ = selecionar_melhor_svm(Cs, gammas, X_treino, X_val, y_treino, y_val)
+            
             y_pred = svm.predict(X_teste)
             y_proba = svm.predict_proba(X_teste)
         
             salvar_objeto({"fold": foldId, "y_true": y_teste.values, "y_proba": y_proba, "classes": svm.classes_},
                           matriz_filename)
             logging.info(f"Probabilidades salvas em {matriz_filename}")
+            
             salvar_objeto(svm, modelo_filename)
             logging.info(f"Modelo salvo em {modelo_filename}")
             
@@ -215,17 +217,16 @@ def do_cv_svm(X, y, ka, cv_splits, groups, config: DatasetConfig, Cs=[1], gammas
     return acuracias, topkScores
 
 def main():
-    cv = 10 # Cross Validation
     
     ka = 5 # Hiperparâmetro do Top-K
     
     print(f"VERSÃO = {DATA_VERSION}")
     print(f"Top-K = {ka}")
     
-    logging.info("Selecione o tipo de dataset:\n1 - Segmentado\n2 - Completo\n3 - Pássaro Único")
+    logging.info("Selecione o tipo de dataset:\n1 - Segmentado\n2 - Completo")
     
-    opcoes = {"1": "segmentado", "2": "completo", "3": "passaro_unico"}
-    tipo = opcoes.get(input("Digite sua escolha (1-3): ").strip())
+    opcoes = {"1": "segmentado", "2": "completo"}
+    tipo = opcoes.get(input("Digite sua escolha: ").strip())
     
     if tipo is None:
         logging.error("Escolha inválida!")
@@ -239,15 +240,17 @@ def main():
 
     df = carregar_objeto(config.path_dataframe)
     logging.info("Dataframe carregado com sucesso!")
+    
+    df = df.dropna(subset=["roi_label"])
+    df["roi_label"] = df["roi_label"].astype(str)
 
     X = df.drop(columns=["roi_label", "audioSource"])
     y = df["roi_label"]
-    groups = df["audioSource"]
 
     logging.info(f"Quantidade de amostras: {X.shape}, Quantidade de classes: {y.nunique()}")
     
     acuracias, topkAcuracias = do_cv_svm(
-        X, y, ka, cv, groups, config, 
+        X, y, ka, config, 
         Cs=[1, 10, 100, 1000], 
         gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4]
     )
