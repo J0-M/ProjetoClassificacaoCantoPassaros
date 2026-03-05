@@ -149,7 +149,7 @@ def main():
     
     dfCut = pd.DataFrame(data, columns=columns) #cria um dataframe pandas
 
-    pasta = "../../dataframes/{DATA_VERSION}"
+    pasta = f"../../dataframes/{DATA_VERSION}"
     os.makedirs(pasta, exist_ok=True)
     
     pathOutput = os.path.join(pasta, "dataframeSegmentado.pkl")
