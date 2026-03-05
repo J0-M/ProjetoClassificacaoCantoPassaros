@@ -5,7 +5,7 @@ import os
 import numpy as np
 import pickle
 
-DATA_VERSION = "v2_media_std"
+DATA_VERSION = "v3_media_std_freq"
 
 audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
 pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
@@ -24,7 +24,7 @@ def cutAudio(audio, startTime, endTime):
         return None, None
     
     try:
-        audio, sr = librosa.load(audio, sr=22000)
+        audio, sr = librosa.load(audio, sr=None)
     except Exception as e:
         print(f"Erro ao carregar o áudio {audio}: {e}")
         return None, None
@@ -42,7 +42,7 @@ def cutAudio(audio, startTime, endTime):
 
 def readCSV(CSV):
     try:
-        df = pd.read_csv(CSV, usecols=["soundscape_file", "roi_label", "roi_start", "roi_end", "roi_label_confidence"])
+        df = pd.read_csv(CSV, usecols=["soundscape_file", "roi_label", "roi_start", "roi_end", "roi_label_confidence", "roi_min_freq", "roi_max_freq", "roi_duration"])
         return df
     except FileNotFoundError:
         print("Arquivo não encontrado")
@@ -89,31 +89,39 @@ def process_audio(index, row):
     startTime = row.roi_start
     endTime = row.roi_end
     confidence = row.roi_label_confidence
+    duration = row.roi_duration
+    minFreq = row.roi_min_freq
+    maxFreq = row.roi_max_freq
 
-    if roiLabel == "NOT_IDENTIFIED" or confidence == "uncertain":
-        print(f"Linha {index}: Espécie incerta")
+    if roiLabel == "NOT_IDENTIFIED" or confidence == "uncertain": # Muitas linhas sem espécie catalogada ou incertas
+        print(f"Linha {index} ignorada (espécie incerta)")
+        return None
+    
+    if pd.isna(minFreq) or pd.isna(maxFreq) or pd.isna(duration): # Linhas com valores inválidos são ignoradas
+        print(f"Linha {index} com valores de frequencia inválidos")
         return None
     
     audioFullPath = os.path.join(audioSourcePath, audioPath)
 
     segmentedAudio, sr = cutAudio(audioFullPath, startTime, endTime)
     
-    if segmentedAudio is None:
+    if segmentedAudio is None: # Erro no corte
         print(f"Linha {index} falhou no corte")
         return None
 
     try:
-        (
+        (   
             centroid_mean, centroid_std,
             contrast_mean, contrast_std,
             flatness_mean, flatness_std,
             rolloff_mean, rolloff_std,
             zero_mean, zero_std,
             rms_mean, rms_std,
-            mfcc_mean, mfcc_std 
+            mfcc_mean, mfcc_std,
         ) = getFeatures(segmentedAudio, sr)
+        
     except Exception as e:
-        print(f"Erro ao extrair features para {audioPath}: {e}")
+        print(f"Linha {index} erro ao extrair features para {audioPath}: {e}")
         return None
     
     features_to_check = [centroid_mean, centroid_std, contrast_mean, contrast_std,
@@ -127,6 +135,9 @@ def process_audio(index, row):
     row_features = [
         audioPath,
         roiLabel,
+        float(minFreq),
+        float(maxFreq),
+        float(duration),
         centroid_mean,
         centroid_std,
         contrast_mean,
@@ -163,7 +174,7 @@ def main():
         delayed(process_audio)(i, row)
         for i, row in enumerate(df.itertuples(index=False))
     )
-    
+        
     data = [r for r in results if r is not None]
     
     columns = [

@@ -50,7 +50,10 @@ def getFinalDataframe(dfAudios):
     
     print(grouped.shape)
     
-    for index, row in grouped.iterrows():
+    for index, row in enumerate(grouped.itertuples()):
+        
+        print(f"Processando linha {index} - audio: {row.soundscape_file}")
+        
         audioFileName = row["soundscape_file"]
         audioPath = os.path.join(audioSourcePath, audioFileName)
         
@@ -63,26 +66,24 @@ def getFinalDataframe(dfAudios):
             if audio is None:
                 continue
             
-            print(f"Processando: {audioFileName}")
-            centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc = getFeatures(audio, sr)
+            try:
+                centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc = getFeatures(audio, sr)
+            except Exception as e:
+                print(f"Erro ao extrair features de {audioFileName}: {e}")
+                continue
             
-            features = {
-                "audioSource": audioFileName,
-                "roi_label": row["roi_label"],
-                "centroid": centroid,
-                "contrast": contrast,
-                "flatness": flatness,
-                "rolloff": rolloff,
-                "zeroCrossRate": zeroCrossRate,
-                "rms": rms,
-                "mfcc": mfcc.tolist()
-            }
+            row_data = [
+                audioFileName,
+                row.roi_label,
+                centroid,
+                contrast,
+                flatness,
+                rolloff,
+                zeroCrossRate,
+                rms,
+            ] + mfcc.tolist()
             
-            row = [features["audioSource"], features["roi_label"], features["centroid"], features["contrast"], 
-                features["flatness"], features["rolloff"], features["zeroCrossRate"], 
-                features["rms"]] + features["mfcc"]
-            
-            data.append(row)
+            data.append(row_data)
             
     columns = ["audioSource", "roi_label", "centroid", "contrast", "flatness", "rolloff", 
             "zeroCrossRate", "rms"] + [f"mfcc_{i}" for i in range(20)]
@@ -91,9 +92,13 @@ def getFinalDataframe(dfAudios):
     return dataframe
             
 def main():
+    print(f"Versão = {DATA_VERSION}")
+    
     df = readCSV(pathCSV) #ler CSV
     
-    df = df[(df["roi_label"] != "NOT_IDENTIFIED") & (df["roi_label_confidence"] != "uncertain")] #filtrando os audios sem especie identificada/sem certeza
+    df = df[
+        (df["roi_label"] != "NOT_IDENTIFIED") 
+        & (df["roi_label_confidence"] != "uncertain")] #filtrando os audios sem especie identificada/sem certeza
     
     especiesAudio = df.groupby("soundscape_file")["roi_label"].nunique() #pegando quantas especies tem por audio
     
@@ -103,10 +108,16 @@ def main():
     
     dataframeFinal = getFinalDataframe(df)
     
-    with open(f"../../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl", "wb") as file:
-        pickle.dump(dataframeFinal, file) #salva as features normalizadas num pickle
-    
-    print(dataframeFinal.head)
+    pasta = f"../../dataframes/{DATA_VERSION}"
+    os.makedirs(pasta, exist_ok=True)
+
+    output = os.path.join(pasta, "dataframeAudioCompleto.pkl")
+
+    with open(output, "wb") as file:
+        pickle.dump(dataframeFinal, file)
+
+    print(dataframeFinal.head())
+    print("Dataframe salvo em:", output)
     
 if __name__ == '__main__':
     startTime = datetime.now()
