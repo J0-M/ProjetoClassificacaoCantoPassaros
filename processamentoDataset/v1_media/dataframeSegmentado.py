@@ -1,16 +1,11 @@
 import librosa 
 import pandas as pd
-import soundfile as sf
 from joblib import Parallel, delayed
-from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Manager
 import os
-import numpy as npy
+import numpy as np
 import pickle
 
 DATA_VERSION = "v1_media"
-
-folderFeaturesPath = "C:\\Users\\Pichau\\Desktop\\texturasAudios"
 
 audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
 pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
@@ -38,6 +33,9 @@ def cutAudio(audio, startTime, endTime):
     timeEnd = int(sr * endTime)
 
     segmentedAudio = audio[timeIni:timeEnd]
+    
+    if len(segmentedAudio) == 0:
+        return None, None
 
     return segmentedAudio, sr
 #############
@@ -61,97 +59,106 @@ def getFeatures(audio, sr):
     rms = librosa.feature.rms(y=audio).mean()
 
     mfcc = librosa.feature.mfcc(y=audio, sr=sr)
-    mfcc = npy.mean(mfcc, axis=1)
+    mfcc = np.mean(mfcc, axis=1)
 
     return(centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc)
+
 ####################
 
-def process_audio(index, line, lastAudioDict):
-    audioPath = line["soundscape_file"]
-    roiLabel = line["roi_label"]
-    startTime = line["roi_start"]
-    endTime = line["roi_end"]
-    confidence = line["roi_label_confidence"]
+def process_audio(index, row):
+    
+    print(f"Processando linha {index} - audio: {row.soundscape_file}")
+    
+    audioPath = row.soundscape_file
+    roiLabel = row.roi_label
+    startTime = row.roi_start
+    endTime = row.roi_end
+    confidence = row.roi_label_confidence
 
     if roiLabel == "NOT_IDENTIFIED" or confidence == "uncertain":
         print(f"linha {index}: Espécie incerta")
         return None
-
-    cutId = lastAudioDict.get(audioPath, -1) + 1
-    lastAudioDict[audioPath] = cutId
     
-    audio = os.path.join(audioSourcePath, audioPath)
+    audioFullPath = os.path.join(audioSourcePath, audioPath)
 
-    segmentedAudio, sr = cutAudio(audio, startTime, endTime)
+    segmentedAudio, sr = cutAudio(audioFullPath, startTime, endTime)
     
     if segmentedAudio is None:
+        print(f"Linha {index} falhou no corte")
         return None
 
-    centroid, contrast, flatness, rolloff, zeroCrossRate, rms, mfcc = getFeatures(segmentedAudio, sr)
-    textures = {
-        "audioSource": audioPath,
-        "roi_label": roiLabel,
-        "centroid": centroid,
-        "contrast": contrast,
-        "flatness": flatness,
-        "rolloff": rolloff,
-        "zeroCrossRate": zeroCrossRate,
-        "rms": rms,
-        "mfcc": mfcc.tolist()
-    }
+    try:
+        (
+            centroid, 
+            contrast, 
+            flatness, 
+            rolloff, 
+            zeroCrossRate, 
+            rms, 
+            mfcc
+         ) = getFeatures(segmentedAudio, sr)
+    except Exception as e:
+        print(f"Erro ao extrair features para {audioPath}: {e}")
+        return None
     
-    npyFileName = f"{audioPath}_{cutId}_features.npy"
-    npyPath = os.path.join(folderFeaturesPath, npyFileName)
-    npy.save(npyPath, textures)
+    features_to_check = [centroid, contrast, flatness, rolloff, 
+                        zeroCrossRate, rms]
     
-    print(f"linha{index}: audio = {audioPath}, timeIni = {startTime}, timeFim = {endTime}")
-    print(f"Texturas Salvas em {npyPath}")
+    if any(np.isnan(f) or np.isinf(f) for f in features_to_check):
+        print(f"Features inválidas (NaN/Inf) para {audioPath}")
+        return None
+    
+    row_features = [
+        audioPath,
+        roiLabel,
+        centroid,
+        contrast,
+        flatness,
+        rolloff,
+        zeroCrossRate,
+        rms,
+    ] + mfcc.tolist()
+    
+    print(f"Linha {index} processada com sucesso")
+    
+    return row_features
 
 ####################
 
 def main():
+    
+    print(f"Versão = {DATA_VERSION}")
+    
     df = readCSV(pathCSV)
     
-    #print(df[["roi_start", "roi_end"]].isna().sum())
+    if df is None:
+        print("Dataframe não encontrado!")
+        return
     
-    if not os.path.exists(folderFeaturesPath):
-        os.makedirs(folderFeaturesPath)
+    print("Total de Linhas = ", len(df))
+
+    results = Parallel(n_jobs=4)(
+        delayed(process_audio)(i, row)
+        for i, row in enumerate(df.itertuples(index=False))
+    )
     
-    with Manager() as manager:
-        lastAudioDict = manager.dict()
-
-        #df_limite = df.iloc[0:101]
-
-        Parallel(n_jobs=4)(
-            delayed(process_audio)(index, line, lastAudioDict) for index, line in df.iterrows()
-        )
-        
-
-    data = []
-
-    for file in os.listdir(folderFeaturesPath): # unifica os arquivos das features .npy em uma única matriz para usar o knn
-        if file.endswith(".npy"):
-            file_path = os.path.join(folderFeaturesPath, file)
-            features = npy.load(file_path, allow_pickle=True).item()
-            
-            if "roi_label" not in features or pd.isnull(features["roi_label"]):
-                print(f"Arquivo {file} tem valor ausente ou incorreto para roi_label")
-                continue
-            
-            row = [features["audioSource"], features["roi_label"], features["centroid"], features["contrast"], 
-                features["flatness"], features["rolloff"], features["zeroCrossRate"], 
-                features["rms"]] + features["mfcc"]
-            
-            data.append(row)
+    data = [r for r in results if r is not None]
     
     columns = ["audioSource", "roi_label", "centroid", "contrast", "flatness", "rolloff", 
             "zeroCrossRate", "rms"] + [f"mfcc_{i}" for i in range(20)]
+    
     dfCut = pd.DataFrame(data, columns=columns) #cria um dataframe pandas
 
-    with open(f"../../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl", "wb") as file:
+    pasta = "../../dataframes/{DATA_VERSION}"
+    os.makedirs(pasta, exist_ok=True)
+    
+    pathOutput = os.path.join(pasta, "dataframeSegmentado.pkl")
+    
+    with open(pathOutput, "wb") as file:
         pickle.dump(dfCut, file) #salva as features normalizadas num pickle
     
     print(dfCut.head())
+    print("Dataframe Salvo em: ", pathOutput)
 
 #############
 
