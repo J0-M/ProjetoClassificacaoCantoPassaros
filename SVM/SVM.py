@@ -172,7 +172,7 @@ def do_cv_svm(X, y, ka, config: DatasetConfig, Cs=[1], gammas=['scale']):
                     random_state=1
                 )
             else:
-                print("[INFO] Fold contém classe com apenas 1 amostra. Split sem estratificação.")
+                logging.info("Fold contém classe com apenas 1 amostra. Split sem estratificação.")
                 
                 X_treino, X_val, y_treino, y_val = train_test_split(
                     X_treino,

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 
-DATA_VERSION = "v2_media_std"
+DATA_VERSION = "v3_media_std_freq"
 CV_SPLITS = 10
 RANDOM_STATE = 1
 
@@ -17,7 +17,7 @@ def salvar_objeto(obj, caminho):
 
 def gerar_folds(df, output_path):
 
-    df = df.dropna(subset=["roi_label"])
+    df = df.dropna(subset=["roi_label"]).copy()
     df["roi_label"] = df["roi_label"].astype(str)
     
     y = df["roi_label"]
