@@ -1,7 +1,29 @@
+from dataclasses import dataclass
+import logging
 import pickle
 import pandas as pd
 import numpy as npy
 from sklearn.preprocessing import LabelEncoder
+
+import matplotlib.pyplot as plt
+
+DATA_VERSION = "v3_media_std_freq"
+
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+
+@dataclass
+class DatasetConfig:
+    picklePath: str
+
+    
+DATASET_CONFIGS = {
+    "segmentado": DatasetConfig(
+        picklePath=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl"
+    ),
+    "completo": DatasetConfig(
+        picklePath = f"../dataframes/{DATA_VERSION}/dataframeCompleto.pkl"
+    ),
+}
 
 def loadDataframe(pickle_path):
     try:
@@ -27,9 +49,19 @@ def dataInfo(dataframe):
         print("Dataframe não carregado corretamente!")
 
 def main():
-    pickle_path = "../dataframes/v3_media_std_freq/dataframeSegmentado.pkl" 
     
-    dataframe = loadDataframe(pickle_path)
+    print(f"VERSÃO = {DATA_VERSION}")
+    
+    print("Selecione o tipo de dataset:")
+    print("1 - Segmentado")
+    print("2 - Completo")
+    
+    opcoes = {"1": "segmentado", "2": "completo"}
+    tipo = opcoes.get(input("Digite sua escolha: ").strip())
+    
+    config = DATASET_CONFIGS[tipo]
+    
+    dataframe = loadDataframe(config.picklePath)
     
     dataInfo(dataframe)
     
@@ -45,6 +77,25 @@ def main():
     
     print("Classes originais:", sorted(npy.unique(y_encoded)))
     print("Classes válidas (>=10 exemplos):", sorted(classes_validas))
+    
+    print("Recortes por espécies:\n")
+    
+    pd.set_option('display.max_rows', None)
+    contagem_por_especie = dataframe["roi_label"].value_counts()
+    df_contagem = contagem_por_especie.reset_index()
+    df_contagem.columns = ["especie", "quantidade"]
+
+    print(df_contagem)
+    
+    plt.figure(figsize=(10,6))
+    plt.hist(contagem_por_especie.values, bins=30, edgecolor="black")
+
+    plt.title("Distribuição de recortes por espécie")
+    plt.xlabel("Número de recortes por espécie")
+    plt.ylabel("Quantidade de espécies")
+
+    plt.grid(alpha=0.3)
+    plt.show()
 
 if __name__ == '__main__':
     main()
