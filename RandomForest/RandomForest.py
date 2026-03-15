@@ -73,11 +73,12 @@ def selecionar_melhor_rf(X_treino, X_val, y_treino, y_val, n_jobs=4):
     rf = RandomForestClassifier(random_state=42)
 
     param_grid = {
-        "n_estimators": [100, 200, 300],
-        "max_depth": [None, 10, 20],
-        "min_samples_split": [2, 5, 10],
-        "min_samples_leaf": [1, 2, 4],
-        "bootstrap": [True, False]
+        "n_estimators": [50, 100],
+        "max_depth": [10, 15, 20],
+        "min_samples_split": [5, 10],
+        "min_samples_leaf": [2, 5],
+        "max_features": ["sqrt"],
+        "bootstrap": [True]
     }
 
     grid_search = GridSearchCV(
@@ -188,7 +189,7 @@ def do_cv_rf(X, y, ka, cv_splits, groups, config: DatasetConfig):
             y_proba = rf.predict_proba(X_teste)
         
             salvar_objeto({"fold": foldId, "y_true": y_teste.values, "y_proba": y_proba, "classes": rf.classes_},
-                          matriz_filename)
+                        matriz_filename)
             logging.info(f"Probabilidades salvas em {matriz_filename}")
             salvar_objeto(rf, modelo_filename)
             logging.info(f"Modelo salvo em {modelo_filename}")
