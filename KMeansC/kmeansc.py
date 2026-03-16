@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from sklearn.cluster import KMeans
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import f1_score, top_k_accuracy_score
+from sklearn.metrics import f1_score, top_k_accuracy_score, pairwise_distances
 
 DATA_VERSION = "v3_media_std_freq"
 
@@ -98,24 +98,38 @@ def treinar_kmeansc(X_treino, y_treino, k_por_classe=2):
     
     for classe in classes:
         X_classe = X_treino[y_treino == classe]
+        n_amostras = len(X_classe)
 
-        if len(X_classe) == 0:
+        if n_amostras == 0:
             continue
         
-        k_real = min(k_por_classe, len(X_classe)) #evita erro por calsses com poucas amostras
+        if n_amostras <= k_por_classe: # se k > amostras, usar numero de amostras como centroides
+            
+            #logging.info(
+            #    f"Classe {classe}: {n_amostras} amostras <= k={k_por_classe} -> usando numero de amostras como centroides"
+            #)
+            
+            centroides.append(X_classe)
+            labels_centroides.extend([classe] * n_amostras)
         
-        kmeans = KMeans(
-            n_clusters=k_real,
-            random_state=42,
-            n_init="auto"
-        )
-        
-        kmeans.fit(X_classe)
-        
-        centroides.append(kmeans.cluster_centers_)
-        labels_centroides.extend([classe] * k_real)
+        else:
+            
+            #logging.info(
+            #    f"Classe {classe}: {n_amostras} amostras > k={k_por_classe} -> usando KMeans com k={k_por_classe}"
+            #)
+
+            kmeans = KMeans(
+                n_clusters=k_por_classe,
+                random_state=42,
+                n_init="auto"
+            )
+
+            kmeans.fit(X_classe)
+
+            centroides.append(kmeans.cluster_centers_)
+            labels_centroides.extend([classe] * k_por_classe)
     
-    centroides = np.vstack(centroides)
+    centroides = np.concatenate(centroides, axis=0)
     labels_centroides = np.array(labels_centroides)
     
     return {
@@ -132,10 +146,7 @@ def prever_kmeansc(modelo, X_teste, y_teste, ka):
     
     X_teste = scaler.transform(X_teste)
     
-    distancias = np.linalg.norm( #distancia euclidiana
-        X_teste[:, np.newaxis] - centroides,
-        axis=2
-    )
+    distancias = pairwise_distances(X_teste, centroides, metric="euclidean")
     
     idx_sorted = np.argsort(distancias, axis=1) #ordenar centroides por distancia (menor p maior)
     
@@ -300,7 +311,7 @@ def main():
     y = df["roi_label"]
 
     acuracias, topkAcuracias = do_cv_kmeansc(
-        X, y, ka, config, k_values=[1,2,3,4,5]
+        X, y, ka, config, k_values=[1, 5, 10, 20, 50]
     )
 
     print(f"\n-- TESTE {config.nome.upper()} --")
