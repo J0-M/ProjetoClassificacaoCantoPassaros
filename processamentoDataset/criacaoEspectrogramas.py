@@ -8,10 +8,10 @@ from tqdm import tqdm
 import hashlib
 from dataclasses import dataclass
 
-# audioSourcePath = "../data/raw/wavs_20241104/"
-# pathCSV = "../data/raw/df_ROI_RosaGLM_ConservaSom_20241104.csv"
-audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
-pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
+audioSourcePath = "../data/raw/wavs_20241104/"
+pathCSV = "../data/raw/df_ROI_RosaGLM_ConservaSom_20241104.csv"
+# audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
+# pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
 
 output_dir = "../data/processed/spectrograms"
 image_dir = os.path.join(output_dir, "images")
@@ -22,12 +22,12 @@ os.makedirs(image_dir, exist_ok=True)
 
 @dataclass
 class SpecConfig:
-    sr: int = None
-    n_fft: int = 2048
+    sr: int = 44100 
+    n_fft: int = 2048 # Tamanho da janela (FFT)
     hop_length: int = 512 # Sobreposição 75%
     n_mels: int = 128
     fmin: int = 0
-    fmax: int = None
+    fmax: int = 22050
 
 
 def readCSV(CSV):
