@@ -1,1 +1,4 @@
 RandomForest/v2_media_std/*
+data/
+__pycache__/
+*.pyc
