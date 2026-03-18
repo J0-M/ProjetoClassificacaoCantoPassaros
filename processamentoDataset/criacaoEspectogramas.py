@@ -8,8 +8,10 @@ from tqdm import tqdm
 import hashlib
 from dataclasses import dataclass
 
-audioSourcePath = "../data/raw/wavs_20241104/"
-pathCSV = "../data/raw/df_ROI_RosaGLM_ConservaSom_20241104.csv"
+# audioSourcePath = "../data/raw/wavs_20241104/"
+# pathCSV = "../data/raw/df_ROI_RosaGLM_ConservaSom_20241104.csv"
+audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
+pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
 
 output_dir = "../data/processed/spectrograms"
 image_dir = os.path.join(output_dir, "images")
@@ -162,7 +164,9 @@ def process_audio_file(audio_rel, group, cfg):
                 "audioSource": audio_rel,
                 "roi_start": start,
                 "roi_end": end,
-                "duration": end - start,
+                "roi_min_freq": row["roi_min_freq"],
+                "roi_max_freq": row["roi_max_freq"],
+                "roi_duration": row["roi_duration"],
             }
         )
 
