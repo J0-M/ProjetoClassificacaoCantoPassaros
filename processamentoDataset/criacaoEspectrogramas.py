@@ -8,10 +8,10 @@ from tqdm import tqdm
 import hashlib
 from dataclasses import dataclass
 
-audioSourcePath = "../data/raw/wavs_20241104/"
-pathCSV = "../data/raw/df_ROI_RosaGLM_ConservaSom_20241104.csv"
-# audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
-# pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
+# audioSourcePath = "../data/raw/wavs_20241104/"
+# pathCSV = "../data/raw/df_ROI_RosaGLM_ConservaSom_20241104.csv"
+audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
+pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
 
 output_dir = "../data/processed/spectrograms"
 image_dir = os.path.join(output_dir, "images")
@@ -24,7 +24,7 @@ os.makedirs(image_dir, exist_ok=True)
 class SpecConfig:
     sr: int = 44100 
     n_fft: int = 2048 # Tamanho da janela (FFT)
-    hop_length: int = 512 # Sobreposição 75%
+    hop_length: int = 512 
     n_mels: int = 128
     fmin: int = 0
     fmax: int = 22050
@@ -52,18 +52,33 @@ def readCSV(CSV):
         print("Arquivo vazio")
 
 
-def audio_segment(y, sr, start, end):
+def audio_segment(y, sr, start, end, margin):
+    start_sample = int((start - margin) * sr)
+    end_sample = int((end + margin) * sr)
 
-    start_sample = int(start * sr)
-    end_sample = int(end * sr)
+    pad_left = 0
+    pad_right = 0
+
+    # Tratamento início
+    if start_sample < 0:
+        pad_left = abs(start_sample)
+        start_sample = 0
+
+    # Tratamento fim
+    if end_sample > len(y):
+        pad_right = end_sample - len(y)
+        end_sample = len(y)
 
     segment = y[start_sample:end_sample]
 
     if len(segment) == 0:
         return None
 
-    return segment
+    # Adiciona padding (silêncio)
+    if pad_left > 0 or pad_right > 0:
+        segment = np.pad(segment, (pad_left, pad_right), mode='constant')
 
+    return segment
 
 def mel_db_image(segment: np.ndarray, sr: int, cfg: SpecConfig):
 
@@ -110,7 +125,7 @@ def build_name(audio_rel: str, start: float, end: float, idx: int):
     return f"{safe_base}_{digest}.png"
 
 
-def process_audio_file(audio_rel, group, cfg):
+def process_audio_file(audio_rel, group, cfg, margin):
 
     audio_path = os.path.join(audioSourcePath, audio_rel)
 
@@ -140,7 +155,7 @@ def process_audio_file(audio_rel, group, cfg):
         if end <= start:
             continue
 
-        segment = audio_segment(y, sr, start, end)
+        segment = audio_segment(y, sr, start, end, margin)
 
         if segment is None:
             continue
@@ -179,6 +194,8 @@ def main():
 
     df = readCSV(pathCSV)
 
+    margin = (3 * cfg.hop_length) / cfg.sr
+    
     if df is None:
         print("Falha ao carregar o CSV.")
         return
@@ -188,7 +205,7 @@ def main():
     grouped = df.groupby("soundscape_file", sort=False)
 
     results = Parallel(n_jobs=4)(
-        delayed(process_audio_file)(audio_file, group, cfg)
+        delayed(process_audio_file)(audio_file, group, cfg, margin)
         for audio_file, group in tqdm(grouped)
     )
 
