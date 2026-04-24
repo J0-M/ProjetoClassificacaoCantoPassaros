@@ -7,7 +7,7 @@ from sklearn.preprocessing import LabelEncoder
 
 import matplotlib.pyplot as plt
 
-DATA_VERSION = "v3_media_std_freq"
+DATA_VERSION = "v4_novas_features"
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 

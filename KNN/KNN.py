@@ -11,7 +11,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
-DATA_VERSION = "v2_media_std"
+DATA_VERSION = "v4_novas_features"
 
 ########## CONFIGURAÇÃO LOGGING #################
 

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 
-DATA_VERSION = "v3_media_std_freq"
+DATA_VERSION = "v4_novas_features"
 CV_SPLITS = 10
 RANDOM_STATE = 1
 

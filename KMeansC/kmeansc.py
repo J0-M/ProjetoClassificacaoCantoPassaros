@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score, pairwise_distances
 
-DATA_VERSION = "v3_media_std_freq"
+DATA_VERSION = "v4_novas_features"
 
 ########## CONFIGURAÇÃO LOGGING #################
 

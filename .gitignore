@@ -1,2 +1,4 @@
 RandomForest/v2_media_std/*
 data/*
+
+*.pkl
