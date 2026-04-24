@@ -15,7 +15,7 @@ from sklearn.model_selection import train_test_split, StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
-DATA_VERSION = "v2_media_std"
+DATA_VERSION = "v4_novas_features"
 
 ########## CONFIGURAÇÃO LOGGING #################
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")

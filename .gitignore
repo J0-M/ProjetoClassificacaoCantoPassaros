@@ -1,4 +1,8 @@
 RandomForest/v2_media_std/*
+data/*
+
+*.pkl
+
 data/
 __pycache__/
 *.pyc
