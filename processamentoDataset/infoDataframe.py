@@ -7,11 +7,7 @@ from sklearn.preprocessing import LabelEncoder
 
 import matplotlib.pyplot as plt
 
-<<<<<<< HEAD
 DATA_VERSION = "v4_novas_features"
-=======
-DATA_VERSION = "v3_media_std_freq"
->>>>>>> 0f16d68d7f2615dda9a5a71f88812ddd79285565
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
@@ -90,6 +86,28 @@ def main():
     df_contagem.columns = ["especie", "quantidade"]
 
     print(df_contagem)
+    
+    print("\n=== INFORMAÇÕES DE DESBALANCEAMENTO ===\n")
+
+    valores = contagem_por_especie.values
+
+    min_amostras = valores.min()
+    max_amostras = valores.max()
+    media_amostras = valores.mean()
+    mediana_amostras = npy.median(valores)
+    std_amostras = valores.std()
+
+    razao_desbalanceamento = max_amostras / min_amostras if min_amostras > 0 else npy.inf
+
+    print(f"Total de espécies: {len(valores)}")
+    print(f"Total de áudios: {len(dataframe)}")
+    print(f"Mínimo de recortes por espécie: {min_amostras}")
+    print(f"Máximo de recortes por espécie: {max_amostras}")
+    print(f"Média de recortes por espécie: {media_amostras:.2f}")
+    print(f"Mediana de recortes por espécie: {mediana_amostras}")
+    print(f"Desvio padrão: {std_amostras:.2f}")
+    print(f"Razão de desbalanceamento (max/min): {razao_desbalanceamento:.2f}")
+
     
     plt.figure(figsize=(10,6))
     plt.hist(contagem_por_especie.values, bins=30, edgecolor="black")

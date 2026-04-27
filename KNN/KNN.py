@@ -141,87 +141,120 @@ def treinar_knn_com_validacao_cruzada(X, y, ka, config: DatasetConfig):
             config.path_modelos, f"KNN_model_fold_{foldId + 1}.pkl"
         )
 
-        if os.path.exists(modelo_filename):
-            logging.info("Carregando modelo salvo...")
-            knn = carregar_objeto(modelo_filename)
+        if os.path.exists(matriz_filename):
+            logging.info("Carregando matriz salva...")
 
-            ss = StandardScaler().fit(X_treino)
-            X_teste = ss.transform(X_teste)
-            
+            matriz = carregar_objeto(matriz_filename)
+
+            y_true = matriz["y_true"]
+            y_proba = matriz["y_proba"]
+            classes = matriz["classes"]
+
+            y_pred = classes[npy.argmax(y_proba, axis=1)]
+
+            f1 = f1_score(y_true, y_pred, average="macro")
+
+            mask = npy.isin(y_true, classes)
+
+            if mask.sum() == 0:
+                topk = 0
+            else:
+                topk = top_k_accuracy_score(
+                    y_true[mask],
+                    y_proba[mask],
+                    k=ka,
+                    labels=classes
+                )
+
         else:
-            logging.info("Treinando modelo...")
-            
-            # Remover classes com menos de 2 exemplos no treino
-            counts_treino = y_treino.value_counts()
-            classes_validas = counts_treino[counts_treino >= 2].index
-            mask = y_treino.isin(classes_validas)
 
-            X_treino = X_treino[mask]
-            y_treino = y_treino[mask]
+            if os.path.exists(modelo_filename):
+                logging.info("Carregando modelo salvo...")
+                knn = carregar_objeto(modelo_filename)
 
-            X_tr, X_val, y_tr, y_val = train_test_split(
-                X_treino,
-                y_treino,
-                test_size=0.2,
-                stratify=y_treino,
-                shuffle=True,
-                random_state=10
+                ss = StandardScaler().fit(X_treino)
+                X_teste_scaled = ss.transform(X_teste)
+
+            else:
+                logging.info("Treinando modelo...")
+
+                counts_treino = y_treino.value_counts()
+                classes_validas = counts_treino[counts_treino >= 2].index
+                mask = y_treino.isin(classes_validas)
+
+                X_treino = X_treino[mask]
+                y_treino = y_treino[mask]
+
+                X_tr, X_val, y_tr, y_val = train_test_split(
+                    X_treino,
+                    y_treino,
+                    test_size=0.2,
+                    stratify=y_treino,
+                    shuffle=True,
+                    random_state=10
+                )
+
+                ss = StandardScaler().fit(X_tr)
+
+                X_tr = ss.transform(X_tr)
+                X_val = ss.transform(X_val)
+                X_teste_scaled = ss.transform(X_teste)
+
+                knn, _, _ = selecionar_melhor_k(
+                    range(1, 30, 2),
+                    X_tr,
+                    X_val,
+                    y_tr,
+                    y_val,
+                    X_teste_scaled,
+                    y_teste
+                )
+
+                salvar_objeto(knn, modelo_filename)
+
+            y_pred = knn.predict(X_teste_scaled)
+            y_proba = knn.predict_proba(X_teste_scaled)
+
+            f1 = f1_score(y_teste, y_pred, average="macro")
+
+            mask = y_teste.isin(knn.classes_)
+            y_teste_filtrado = y_teste[mask]
+            y_proba_filtrado = y_proba[mask.values]
+
+            classes_presentes = npy.intersect1d(
+                knn.classes_,
+                npy.unique(y_teste_filtrado)
             )
-            
-            ss = StandardScaler().fit(X_tr)
 
-            X_tr = ss.transform(X_tr)
-            X_val = ss.transform(X_val)
-            X_teste = ss.transform(X_teste)
+            idxs = [npy.where(knn.classes_ == c)[0][0]
+                    for c in classes_presentes]
 
-            knn, _, _ = selecionar_melhor_k(
-                range(1, 30, 2),
-                X_tr,
-                X_val,
-                y_tr,
-                y_val,
-                X_teste,
-                y_teste
-            )
-            salvar_objeto(knn, modelo_filename)
+            y_proba_filtrado = y_proba_filtrado[:, idxs]
 
-        y_pred = knn.predict(X_teste)
-        y_proba = knn.predict_proba(X_teste)
+            if len(y_teste_filtrado) == 0:
+                topk = 0
+            else:
+                topk = top_k_accuracy_score(
+                    y_teste_filtrado,
+                    y_proba_filtrado,
+                    k=ka,
+                    labels=classes_presentes
+                )
 
-        matriz_info = {
-            "fold": foldId,
-            "y_true": y_teste.values,
-            "y_proba": y_proba,
-            "classes": knn.classes_
-        }
+            salvar_objeto({
+                "fold": foldId,
+                "y_true": y_teste.values,
+                "y_proba": y_proba,
+                "classes": knn.classes_
+            }, matriz_filename)
 
-        salvar_objeto(matriz_info, matriz_filename)
+            logging.info("Matriz salva.")
 
-        f1 = f1_score(y_teste, y_pred, average="macro")
+        logging.info(f"F1-score: {f1:.2f}")
+        logging.info(f"Top-{ka} Accuracy: {topk:.2f}")
+
         acuracias.append(f1)
-
-        mask = y_teste.isin(knn.classes_)
-        y_teste_filtrado = y_teste[mask]
-        y_proba_filtrado = y_proba[mask.values]
-
-        classes_presentes = npy.intersect1d(
-            knn.classes_,
-            npy.unique(y_teste_filtrado)
-        )
-
-        idxs = [npy.where(knn.classes_ == c)[0][0]
-                for c in classes_presentes]
-
-        y_proba_filtrado = y_proba_filtrado[:, idxs]
-
-        topKScores.append(
-            top_k_accuracy_score(
-                y_teste_filtrado,
-                y_proba_filtrado,
-                k=ka,
-                labels=classes_presentes
-            )
-        )
+        topKScores.append(topk)
 
         exibir_resultados(knn, X_teste, y_teste, ka)
 

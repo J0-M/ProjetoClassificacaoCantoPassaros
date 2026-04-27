@@ -222,60 +222,93 @@ def do_cv_kmeansc(X, y, ka, config: DatasetConfig, k_values):
             f"matriz_{foldId + 1}.pkl"
         )
 
-        if os.path.exists(modelo_filename):
-            
-            logging.info("Carregando modelo salvo...")
-            modelo = carregar_objeto(modelo_filename)
-            
-        else:
-            logging.info(f"Treinando modelo {foldId + 1}...")
-            
-            counts = y_treino.value_counts()
+        if os.path.exists(matriz_filename):
+            logging.info("Carregando matriz salva...")
 
-            if counts.min() >= 2:
-                X_tr, X_val, y_tr, y_val = train_test_split(
-                    X_treino,
-                    y_treino,
-                    stratify=y_treino,
-                    test_size=0.2,
-                    random_state=1
-                )
+            matriz = carregar_objeto(matriz_filename)
+
+            y_true = matriz["y_true"]
+            y_scores = matriz["y_scores"]
+            classes = matriz["classes"]
+
+            # reconstruir predição
+            y_pred = classes[np.argmax(y_scores, axis=1)]
+
+            # métricas
+            f1 = f1_score(y_true, y_pred, average="macro")
+
+            mask = np.isin(y_true, classes)
+
+            if mask.sum() == 0:
+                topk = 0
             else:
-                logging.info("Fold contém classe com apenas 1 amostra. Split sem estratificação.")
-
-                X_tr, X_val, y_tr, y_val = train_test_split(
-                    X_treino,
-                    y_treino,
-                    test_size=0.2,
-                    random_state=1
+                topk = top_k_accuracy_score(
+                    y_true[mask],
+                    y_scores[mask],
+                    k=ka,
+                    labels=classes
                 )
-            
-            modelo, melhor_k, _ = selecionar_melhor_kmeans(
-                k_values,
-                X_tr.values,
-                X_val.values,
-                y_tr.values,
-                y_val.values,
+
+        else:
+
+            if os.path.exists(modelo_filename):
+                logging.info("Carregando modelo salvo...")
+                modelo = carregar_objeto(modelo_filename)
+
+            else:
+                logging.info(f"Treinando modelo {foldId + 1}...")
+
+                counts = y_treino.value_counts()
+
+                if counts.min() >= 2:
+                    X_tr, X_val, y_tr, y_val = train_test_split(
+                        X_treino,
+                        y_treino,
+                        stratify=y_treino,
+                        test_size=0.2,
+                        random_state=1
+                    )
+                else:
+                    logging.info("Sem estratificação")
+                    X_tr, X_val, y_tr, y_val = train_test_split(
+                        X_treino,
+                        y_treino,
+                        test_size=0.2,
+                        random_state=1
+                    )
+                
+                modelo, melhor_k, _ = selecionar_melhor_kmeans(
+                    k_values,
+                    X_tr.values,
+                    X_val.values,
+                    y_tr.values,
+                    y_val.values,
+                    ka
+                )
+                
+                salvar_objeto(modelo, modelo_filename)
+                logging.info("Modelo salvo.")
+
+            logging.info("Calculando matriz...")
+
+            f1, topk, y_pred, y_scores = prever_kmeansc(
+                modelo,
+                X_teste.values,
+                y_teste.values,
                 ka
             )
-            
-            salvar_objeto(modelo, modelo_filename)
-            logging.info("Modelo salvo.")
-            
-        f1, topk, y_pred, y_scores = prever_kmeansc(
-            modelo,
-            X_teste.values,
-            y_teste.values,
-            ka
-        )
-        
-        salvar_objeto({
-            "fold": foldId,
-            "y_true": y_teste,
-            "y_scores": y_scores,
-            "classes": modelo["labels"]
-        }, matriz_filename)
-        
+
+            classes = np.unique(modelo["labels"])
+
+            salvar_objeto({
+                "fold": foldId,
+                "y_true": y_teste.values,
+                "y_scores": y_scores,
+                "classes": classes
+            }, matriz_filename)
+
+            logging.info("Matriz salva.")
+
         logging.info(f"F1-score: {f1:.2f}")
         logging.info(f"Top-{ka} Accuracy: {topk:.2f}")
 
