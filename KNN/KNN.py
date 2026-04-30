@@ -6,12 +6,30 @@ import logging
 from datetime import datetime
 from dataclasses import dataclass
 
-from sklearn.model_selection import train_test_split, StratifiedGroupKFold
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
-DATA_VERSION = "v4_novas_features"
+versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
+
+print("Selecione a versão do dataset:")
+for i, v in enumerate(versoes_validas, 1):
+    print(f"{i} - {v}")
+
+entrada = input("Digite o número da versão desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(versoes_validas):
+    logging.error("Versão inválida!")
+    exit()
+
+DATA_VERSION = versoes_validas[idx]
 
 ########## CONFIGURAÇÃO LOGGING #################
 
@@ -84,29 +102,25 @@ def selecionar_melhor_k(ks, X_treino, X_val, y_treino, y_val, X_teste, y_teste):
     knn_final = KNeighborsClassifier(n_neighbors=melhor_k)
     knn_final.fit(npy.vstack((X_treino, X_val)), [*y_treino, *y_val])
     
-    logging.info(f"Acurácia no teste: {f1_score(y_teste, knn_final.predict(X_teste), average='macro'):.2f}")
-    
     return knn_final, melhor_k, melhor_val
 
 
-def exibir_resultados(knn, X_test_scaled, y_test, ka):
+def exibir_resultados_matriz(y_true, y_proba, classes, ka):
+    y_pred = classes[npy.argmax(y_proba, axis=1)]
     
-    y_pred = knn.predict(X_test_scaled)
-    y_proba = knn.predict_proba(X_test_scaled)
+    f1 = f1_score(y_true, y_pred, average="macro")
 
-    f1 = f1_score(y_test, y_pred, average="macro")
-    mask = y_test.isin(knn.classes_)
-    y_test_filtrado = y_test[mask]
-    y_proba_filtrado = y_proba[mask.values]
+    mask = npy.isin(y_true, classes)
     
-    classes_presentes = npy.intersect1d(knn.classes_, npy.unique(y_test_filtrado))
-    idxs = [npy.where(knn.classes_ == c)[0][0] for c in classes_presentes]
-    y_proba_filtrado = y_proba_filtrado[:, idxs]
-    
-    topk_acc = top_k_accuracy_score(y_test_filtrado, y_proba_filtrado, k=ka, labels=classes_presentes)
+    topk = top_k_accuracy_score(
+        y_true[mask],
+        y_proba[mask],
+        k=ka,
+        labels=classes
+    )
 
     logging.info(f"F1-score do KNN: {f1:.2f}")
-    logging.info(f"Top-{ka} Accuracy: {topk_acc:.2f}")
+    logging.info(f"Top-{ka} Accuracy: {topk:.2f}")
     
 def treinar_knn_com_validacao_cruzada(X, y, ka, config: DatasetConfig):
 
@@ -149,6 +163,8 @@ def treinar_knn_com_validacao_cruzada(X, y, ka, config: DatasetConfig):
             y_true = matriz["y_true"]
             y_proba = matriz["y_proba"]
             classes = matriz["classes"]
+            
+            print("Classes fora do modelo:", set(y_true) - set(classes))
 
             y_pred = classes[npy.argmax(y_proba, axis=1)]
 
@@ -165,6 +181,8 @@ def treinar_knn_com_validacao_cruzada(X, y, ka, config: DatasetConfig):
                     k=ka,
                     labels=classes
                 )
+            
+            exibir_resultados_matriz(y_true, y_proba, classes, ka)
 
         else:
 
@@ -177,11 +195,13 @@ def treinar_knn_com_validacao_cruzada(X, y, ka, config: DatasetConfig):
 
             else:
                 logging.info("Treinando modelo...")
-
+                
+                print(y_treino.value_counts().min())
+                
                 counts_treino = y_treino.value_counts()
                 classes_validas = counts_treino[counts_treino >= 2].index
-                mask = y_treino.isin(classes_validas)
 
+                mask = y_treino.isin(classes_validas)
                 X_treino = X_treino[mask]
                 y_treino = y_treino[mask]
 
@@ -256,12 +276,12 @@ def treinar_knn_com_validacao_cruzada(X, y, ka, config: DatasetConfig):
         acuracias.append(f1)
         topKScores.append(topk)
 
-        exibir_resultados(knn, X_teste, y_teste, ka)
-
     return acuracias, topKScores
 
 def main():
-    ka = 5  # Hiperparâmetro do Top-K
+    ka = int(input("Hiperparâmetro K (Top-K): "))
+    
+    print("\n##########################\n")
     
     print(f"VERSÃO = {DATA_VERSION}")
     print(f"Top-K = {ka}")

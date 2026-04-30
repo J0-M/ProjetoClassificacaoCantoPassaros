@@ -11,7 +11,25 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score, pairwise_distances
 
-DATA_VERSION = "v4_novas_features"
+versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
+
+print("Selecione a versão do dataset:")
+for i, v in enumerate(versoes_validas, 1):
+    print(f"{i} - {v}")
+
+entrada = input("Digite o número da versão desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(versoes_validas):
+    logging.error("Versão inválida!")
+    exit()
+
+DATA_VERSION = versoes_validas[idx]
 
 ########## CONFIGURAÇÃO LOGGING #################
 
@@ -29,16 +47,9 @@ DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_treinoSegmentado",
-        path_modelos=f"{DATA_VERSION}/modelos_kmeansc_treinoSegmentado",
+        path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_nc_treinoSegmentado", # NEAREST-CENTROID
+        path_modelos=f"{DATA_VERSION}/modelos_kmeansc_nc_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
-    ),
-    "completo": DatasetConfig(
-        nome="Áudios Completos",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_treinoCompleto",
-        path_modelos=f"{DATA_VERSION}/modelos_kmeansc_treinoCompleto",
-        path_folds=f"../folds/{DATA_VERSION}/completo/stratified_group_kfold_10.pkl"
     ),
 }
 
@@ -230,6 +241,8 @@ def do_cv_kmeansc(X, y, ka, config: DatasetConfig, k_values):
             y_true = matriz["y_true"]
             y_scores = matriz["y_scores"]
             classes = matriz["classes"]
+            
+            print("Classes fora do modelo:", set(y_true) - set(classes))
 
             # reconstruir predição
             y_pred = classes[np.argmax(y_scores, axis=1)]
@@ -257,25 +270,23 @@ def do_cv_kmeansc(X, y, ka, config: DatasetConfig, k_values):
 
             else:
                 logging.info(f"Treinando modelo {foldId + 1}...")
+                
+                print(y_treino.value_counts().min())
+                
+                counts_treino = y_treino.value_counts()
+                classes_validas = counts_treino[counts_treino >= 2].index
 
-                counts = y_treino.value_counts()
+                mask = y_treino.isin(classes_validas)
+                X_treino = X_treino[mask]
+                y_treino = y_treino[mask]
 
-                if counts.min() >= 2:
-                    X_tr, X_val, y_tr, y_val = train_test_split(
-                        X_treino,
-                        y_treino,
-                        stratify=y_treino,
-                        test_size=0.2,
-                        random_state=1
-                    )
-                else:
-                    logging.info("Sem estratificação")
-                    X_tr, X_val, y_tr, y_val = train_test_split(
-                        X_treino,
-                        y_treino,
-                        test_size=0.2,
-                        random_state=1
-                    )
+                X_tr, X_val, y_tr, y_val = train_test_split(
+                    X_treino,
+                    y_treino,
+                    stratify=y_treino,
+                    test_size=0.2,
+                    random_state=1
+                )
                 
                 modelo, melhor_k, _ = selecionar_melhor_kmeans(
                     k_values,
@@ -319,15 +330,17 @@ def do_cv_kmeansc(X, y, ka, config: DatasetConfig, k_values):
 
 def main():
 
-    ka = 5
+    ka = int(input("Hiperparâmetro K (Top-K): "))
+    
+    print("\n##########################\n")
 
     print(f"VERSÃO = {DATA_VERSION}")
     print(f"Top-K = {ka}")
     
     logging.info("Selecione o tipo de dataset:\n1 - Segmentado")
 
-    opcoes = {"1": "segmentado", "2": "completo"}
-    tipo = opcoes.get(input("Digite sua escolha (1-2): ").strip())
+    opcoes = {"1": "segmentado"}
+    tipo = opcoes.get(input("Digite sua escolha: ").strip())
 
     if tipo is None:
         logging.error("Escolha inválida!")

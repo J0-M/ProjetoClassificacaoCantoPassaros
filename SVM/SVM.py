@@ -9,11 +9,29 @@ from dataclasses import dataclass
 from joblib import Parallel, delayed
 
 from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split, StratifiedGroupKFold
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
-DATA_VERSION = "v4_novas_features"
+versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
+
+print("Selecione a versão do dataset:")
+for i, v in enumerate(versoes_validas, 1):
+    print(f"{i} - {v}")
+
+entrada = input("Digite o número da versão desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(versoes_validas):
+    logging.error("Versão inválida!")
+    exit()
+
+DATA_VERSION = versoes_validas[idx]
 
 ########## CONFIGURAÇÃO LOGGING #################
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -155,6 +173,8 @@ def do_cv_svm(X, y, ka, config: DatasetConfig, Cs, gammas):
             y_true = matriz["y_true"]
             y_proba = matriz["y_proba"]
             classes = matriz["classes"]
+            
+            print("Classes fora do modelo:", set(y_true) - set(classes))
 
             y_pred = classes[np.argmax(y_proba, axis=1)]
 
@@ -170,22 +190,23 @@ def do_cv_svm(X, y, ka, config: DatasetConfig, Cs, gammas):
             else:
                 logging.info("Treinando modelo...")
 
-                counts = y_treino.value_counts()
+                print(y_treino.value_counts().min())
+                
+                counts_treino = y_treino.value_counts()
+                classes_validas = counts_treino[counts_treino >= 2].index
 
-                if counts.min() >= 2:
-                    X_tr, X_val, y_tr, y_val = train_test_split(
-                        X_treino, y_treino,
-                        stratify=y_treino,
-                        test_size=0.2,
-                        random_state=1
-                    )
-                else:
-                    logging.info("Sem estratificação")
-                    X_tr, X_val, y_tr, y_val = train_test_split(
-                        X_treino, y_treino,
-                        test_size=0.2,
-                        random_state=1
-                    )
+                mask = y_treino.isin(classes_validas)
+                X_treino = X_treino[mask]
+                y_treino = y_treino[mask]
+
+                X_tr, X_val, y_tr, y_val = train_test_split(
+                    X_treino, 
+                    y_treino,
+                    test_size=0.2,
+                    stratify=y_treino,
+                    shuffle=True,
+                    random_state=1
+                )
 
                 scaler = StandardScaler()
                 X_tr = scaler.fit_transform(X_tr)
@@ -208,30 +229,42 @@ def do_cv_svm(X, y, ka, config: DatasetConfig, Cs, gammas):
 
             y_pred = svm.predict(X_test_scaled)
             y_proba = svm.predict_proba(X_test_scaled)
+            
+            classes = svm.classes_
 
             salvar_objeto({
                 "fold": foldId,
                 "y_true": y_teste.values,
                 "y_proba": y_proba,
-                "classes": svm.classes_
+                "classes": classes
             }, matriz_filename)
 
             logging.info("Matriz salva.")
 
         f1 = f1_score(y_teste, y_pred, average="macro")
 
-        mask = y_teste.isin(svm.classes_)
+        mask = np.isin(y_teste, classes)
         y_teste_filtrado = y_teste[mask]
-        y_proba_filtrado = y_proba[mask.values]
+        y_proba_filtrado = y_proba[mask]
 
         if len(y_teste_filtrado) == 0:
             topk = 0
         else:
+            classes_presentes = np.intersect1d(
+                classes,
+                np.unique(y_teste_filtrado)
+            )
+
+            idxs = [np.where(classes == c)[0][0]
+                    for c in classes_presentes]
+
+            y_proba_filtrado = y_proba_filtrado[:, idxs]
+
             topk = top_k_accuracy_score(
                 y_teste_filtrado,
                 y_proba_filtrado,
                 k=ka,
-                labels=svm.classes_
+                labels=classes_presentes
             )
 
         logging.info(f"F1={f1:.3f} | Top-{ka}={topk:.3f}")
@@ -243,7 +276,9 @@ def do_cv_svm(X, y, ka, config: DatasetConfig, Cs, gammas):
 
 def main():
     
-    ka = 5 # Hiperparâmetro do Top-K
+    ka = int(input("Hiperparâmetro K (Top-K): "))
+    
+    print("\n##########################\n")
     
     print(f"VERSÃO = {DATA_VERSION}")
     print(f"Top-K = {ka}")

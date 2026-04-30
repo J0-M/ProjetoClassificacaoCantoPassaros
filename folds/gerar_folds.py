@@ -19,13 +19,19 @@ def gerar_folds(df, output_path):
 
     df = df.dropna(subset=["roi_label"]).copy()
     df["roi_label"] = df["roi_label"].astype(str)
+
+    counts = df["roi_label"].value_counts()
+    classes_validas = counts[counts >= CV_SPLITS].index # filtro por amostras (excluir espécies com menos de 10 (CV_SPLITS))
+    df = df[df["roi_label"].isin(classes_validas)].copy()
     
-    y = df["roi_label"]
+    grupos_por_classe = df.groupby("roi_label")["audioSource"].nunique()
+    classes_validas_grupos = grupos_por_classe[grupos_por_classe >= 2].index #filtro por grupos (2 audios distintos, para ser 1 treino e 1 teste)
+    df = df[df["roi_label"].isin(classes_validas_grupos)].copy()
+    
+    df = df.reset_index(drop=True)
 
-    counts = y.value_counts()
-    classes_validas = counts[counts >= CV_SPLITS].index
-
-    df = df[df["roi_label"].isin(classes_validas)]
+    print(f"Total amostras após filtro: {len(df)}")
+    print(f"Total classes após filtro: {df['roi_label'].nunique()}")
     
     X = df.drop(columns=["roi_label", "audioSource"])
     y = df["roi_label"]
