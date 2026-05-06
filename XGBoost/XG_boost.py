@@ -10,12 +10,30 @@ from dataclasses import dataclass
 from joblib import Parallel, delayed
 
 from xgboost import XGBClassifier
-from xgboost.callback import EarlyStopping
-from sklearn.model_selection import train_test_split, StratifiedGroupKFold
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
-DATA_VERSION = "v4_novas_features"
+versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
+
+print("Selecione a versão do dataset:")
+for i, v in enumerate(versoes_validas, 1):
+    print(f"{i} - {v}")
+
+entrada = input("Digite o número da versão desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(versoes_validas):
+    logging.error("Versão inválida!")
+    exit()
+
+DATA_VERSION = versoes_validas[idx]
+
 
 ########## CONFIGURAÇÃO LOGGING #################
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -123,27 +141,27 @@ def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classe
 
 #################################################
 
-def exibir_resultados(model, X_test, y_test, ka):
-    y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)
+def calcular_metricas(y_true, y_proba, classes, ka):
+    y_pred = classes[npy.argmax(y_proba, axis=1)]
     
-    if len(y_test) != len(y_pred):
-        logging.error(f"Tamanho inconsistente: y_test ({len(y_test)}) e y_pred ({len(y_pred)})")
-        return
+    f1 = f1_score(y_true, y_pred, average="macro")
 
-    f1 = f1_score(y_test, y_pred, average="macro")
+    mask = npy.isin(y_true, classes)
+    
+    if mask.sum() == 0:
+        return f1, 0
+    
+    topk = top_k_accuracy_score(
+        y_true[mask],
+        y_proba[mask],
+        k=ka,
+        labels=classes
+    )
 
-    mask = npy.isin(y_test, model.classes_)
-    y_test_filtrado = y_test[mask]
-    y_proba_filtrado = y_proba[mask]
-
-    idxs = [npy.where(model.classes_ == c)[0][0] for c in npy.unique(y_test_filtrado)]
-    y_proba_filtrado = y_proba_filtrado[:, idxs]
-
-    topk = top_k_accuracy_score(y_test_filtrado, y_proba_filtrado, k=ka, labels=npy.unique(y_test_filtrado))
-
-    logging.info(f"F1-score XGB: {f1:.2f}")
-    logging.info(f"Top-{ka} Accuracy: {topk:.2f}")
+    #logging.info(f"F1-score do XGBoost: {f1:.2f}")
+    #logging.info(f"Top-{ka} Accuracy: {topk:.2f}")
+    
+    return f1, topk
 
 #################################################
 
@@ -180,90 +198,121 @@ def do_cv_xgb(X, y, ka, config, param_grid):
             config.path_matrizes, f"matriz_{foldId + 1}.pkl"
         )
 
-        if os.path.exists(modelo_filename):
+        if os.path.exists(matriz_filename):
 
-            logging.info("Carregando modelo salvo...")
+            logging.info("Carregando matriz salva...")
 
-            obj = carregar_objeto(modelo_filename)
-            modelo = obj["modelo"]
-            le = obj["label_encoder"]
-            ss = obj["scaler"]
+            matriz = carregar_objeto(matriz_filename)
 
-            mask_test = y_test.isin(le.classes_)
-            X_test = X_test[mask_test]
-            y_test = y_test[mask_test]
+            y_true = matriz["y_true"]
+            y_proba = matriz["y_proba"]
+            classes = matriz["classes"]
+            
+            print("Classes fora do modelo:", set(y_true) - set(classes))
 
-            y_test_encoded = le.transform(y_test)
-            X_test = ss.transform(X_test)
+            y_pred = classes[npy.argmax(y_proba, axis=1)]
 
-            y_pred = modelo.predict(X_test)
-            y_proba = modelo.predict_proba(X_test)
-
+            f1, topk = calcular_metricas(y_true, y_proba, classes, ka)
+            
         else:
 
-            counts = y_train.value_counts()
+            if os.path.exists(modelo_filename):
 
-            if counts.min() >= 2:
-                X_tr, X_val, y_tr_raw, y_val_raw = train_test_split(
-                    X_train,
-                    y_train,
-                    stratify=y_train,
-                    test_size=0.2,
-                    random_state=1
-                )
+                logging.info("Carregando modelo salvo...")
+
+                obj = carregar_objeto(modelo_filename)
+                modelo = obj["modelo"]
+                le = obj["label_encoder"]
+                ss = obj["scaler"]
+
             else:
-                logging.warning(
-                    "Classe com apenas 1 amostra → split sem estratificação"
-                )
-                X_tr, X_val, y_tr_raw, y_val_raw = train_test_split(
+
+                logging.info("Treinando modelo...")
+
+                print(y_train.value_counts().min())
+                
+                counts = y_train.value_counts()
+                classes_validas = counts[counts >= 2].index
+                
+                logging.info(f"Espécies antes do filtro: {len(counts)}")
+                logging.info(f"Amostras antes do filtro: {len(y_train)}")
+
+                mask = y_train.isin(classes_validas)
+                X_train = X_train[mask]
+                y_train = y_train[mask]
+                
+                logging.info(f"Espécies depois do filtro: {y_train.nunique()}")
+                logging.info(f"Amostras depois do filtro: {len(y_train)}")
+                
+                logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
+
+                X_tr, X_val, y_tr, y_val = train_test_split(
                     X_train,
                     y_train,
                     test_size=0.2,
-                    random_state=1
+                    stratify=y_train,
+                    shuffle=True,
+                    random_state=10
                 )
-            
 
-            le = LabelEncoder()
-            y_tr = le.fit_transform(y_tr_raw)
+                le = LabelEncoder()
+                y_tr = le.fit_transform(y_tr)
 
-            mask_val = y_val_raw.isin(le.classes_)
-            X_val = X_val[mask_val]
-            y_val_raw = y_val_raw[mask_val]
-            y_val = le.transform(y_val_raw)
+                mask_val = y_val.isin(le.classes_)
+                X_val = X_val[mask_val]
+                y_val = y_val[mask_val]
+                y_val = le.transform(y_val)
 
+                num_classes = len(le.classes_)
+
+                ss = StandardScaler()
+                ss.fit(X_tr)
+
+                X_tr = ss.transform(X_tr)
+                X_val = ss.transform(X_val)
+
+                modelo, _, _ = selecionar_melhor_xgb(
+                    param_grid,
+                    X_tr,
+                    X_val,
+                    y_tr,
+                    y_val,
+                    num_classes
+                )
+
+                salvar_objeto(
+                    {
+                        "modelo": modelo,
+                        "label_encoder": le,
+                        "scaler": ss,
+                    },
+                    modelo_filename,
+                )
+
+                logging.info("Modelo salvo.")
+
+            logging.info("Calculando matriz...")
+
+            # filtrar apenas classes vistas
             mask_test = y_test.isin(le.classes_)
-            X_test = X_test[mask_test]
-            y_test = y_test[mask_test]
-            y_test_encoded = le.transform(y_test)
+            X_test_filtrado = X_test[mask_test]
+            y_test_filtrado = y_test[mask_test]
 
-            num_classes = len(le.classes_)
+            y_test_encoded = le.transform(y_test_filtrado)
+            X_test_filtrado = ss.transform(X_test_filtrado)
 
-            ss = StandardScaler()
-            ss.fit(X_tr)
+            y_pred = modelo.predict(X_test_filtrado)
+            y_proba = modelo.predict_proba(X_test_filtrado)
 
-            X_tr = ss.transform(X_tr)
-            X_val = ss.transform(X_val)
-            X_test = ss.transform(X_test)
+            classes = modelo.classes_
 
-            modelo, _, _ = selecionar_melhor_xgb(
-                param_grid,
-                X_tr,
-                X_val,
-                y_tr,
-                y_val,
-                num_classes
-            )
+            f1 = f1_score(y_test_encoded, y_pred, average="macro")
 
-            y_pred = modelo.predict(X_test)
-            y_proba = modelo.predict_proba(X_test)
-
-            salvar_objeto(
-                {
-                    "modelo": modelo,
-                    "label_encoder": le,
-                    "scaler": ss,
-                },
-                modelo_filename,
+            topk = top_k_accuracy_score(
+                y_test_encoded,
+                y_proba,
+                k=ka,
+                labels=classes
             )
 
             salvar_objeto(
@@ -271,32 +320,28 @@ def do_cv_xgb(X, y, ka, config, param_grid):
                     "fold": foldId,
                     "y_true": y_test_encoded,
                     "y_proba": y_proba,
-                    "classes": modelo.classes_,
+                    "classes": classes,
                 },
                 matriz_filename,
             )
 
-            logging.info(f"Modelo salvo no fold {foldId + 1}.")
+            logging.info("Matriz salva.")
 
-        f1 = f1_score(y_test_encoded, y_pred, average="macro")
-        
-        topk = top_k_accuracy_score(
-            y_test_encoded, y_proba, k=ka, labels=modelo.classes_
-        )
-
-        exibir_resultados(modelo, X_test, y_test_encoded, ka)
+        logging.info(f"F1-score: {f1:.2f}")
+        logging.info(f"Top-{ka} Accuracy: {topk:.2f}")
 
         acuracias.append(f1)
         topkScores.append(topk)
 
     return acuracias, topkScores
 
-
 #################################################
 
 def main():
 
-    ka = 5
+    ka = int(input("Hiperparâmetro K (Top-K): "))
+    
+    print("\n##########################\n")
 
     print(f"VERSÃO = {DATA_VERSION}")
     print(f"Top-K = {ka}")

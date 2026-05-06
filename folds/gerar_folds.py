@@ -14,18 +14,29 @@ def salvar_objeto(obj, caminho):
     with open(caminho, "wb") as f:
         pickle.dump(obj, f)
 
+def preparar_dataframe(df):
+    df = df.dropna(subset=["roi_label"]).copy()
+    df["roi_label"] = df["roi_label"].astype(str)
+
+    counts = df["roi_label"].value_counts()
+    classes_validas = counts[counts >= CV_SPLITS].index
+    df = df[df["roi_label"].isin(classes_validas)].copy()
+
+    grupos_por_classe = df.groupby("roi_label")["audioSource"].nunique()
+    classes_validas_grupos = grupos_por_classe[grupos_por_classe >= 2].index
+    df = df[df["roi_label"].isin(classes_validas_grupos)].copy()
+
+    df = df.reset_index(drop=True)
+
+    return df
+
 
 def gerar_folds(df, output_path):
 
-    df = df.dropna(subset=["roi_label"]).copy()
-    df["roi_label"] = df["roi_label"].astype(str)
-    
-    y = df["roi_label"]
+    df = preparar_dataframe(df)
 
-    counts = y.value_counts()
-    classes_validas = counts[counts >= CV_SPLITS].index
-
-    df = df[df["roi_label"].isin(classes_validas)]
+    print(f"Total amostras após filtro: {len(df)}")
+    print(f"Total classes após filtro: {df['roi_label'].nunique()}")
     
     X = df.drop(columns=["roi_label", "audioSource"])
     y = df["roi_label"]
@@ -64,7 +75,6 @@ def main():
     gerar_folds(df, output_path)
 
     print("Folds salvos com sucesso!")
-
 
 if __name__ == "__main__":
     main()
