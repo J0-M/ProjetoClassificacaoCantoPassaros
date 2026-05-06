@@ -273,12 +273,20 @@ def do_cv_kmeansc(X, y, ka, config: DatasetConfig, k_values):
                 
                 print(y_treino.value_counts().min())
                 
-                counts_treino = y_treino.value_counts()
-                classes_validas = counts_treino[counts_treino >= 2].index
+                counts = y_treino.value_counts()
+                classes_validas = counts[counts >= 2].index
+
+                logging.info(f"Espécies antes do filtro: {len(counts)}")
+                logging.info(f"Amostras antes do filtro: {len(y_treino)}")
 
                 mask = y_treino.isin(classes_validas)
                 X_treino = X_treino[mask]
                 y_treino = y_treino[mask]
+                
+                logging.info(f"Espécies depois do filtro: {y_treino.nunique()}")
+                logging.info(f"Amostras depois do filtro: {len(y_treino)}")
+                
+                logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_treino,

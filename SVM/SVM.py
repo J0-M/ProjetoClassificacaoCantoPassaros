@@ -86,7 +86,7 @@ def selecionar_melhor_svm(Cs, gammas, X_treino : np.ndarray, X_val : np.ndarray,
                           y_treino : np.ndarray, y_val : np.ndarray, n_jobs=4):
     
     def treinar_svm(C, gamma, X_treino, X_val, y_treino, y_val):
-        svm = SVC(C=C, gamma=gamma, probability=True)
+        svm = SVC(C=C, gamma=gamma)
         svm.fit(X_treino, y_treino)
         pred = svm.predict(X_val) 
         return f1_score(y_val, pred, average="macro")
@@ -192,12 +192,20 @@ def do_cv_svm(X, y, ka, config: DatasetConfig, Cs, gammas):
 
                 print(y_treino.value_counts().min())
                 
-                counts_treino = y_treino.value_counts()
-                classes_validas = counts_treino[counts_treino >= 2].index
+                counts = y_treino.value_counts()
+                classes_validas = counts[counts >= 2].index
+
+                logging.info(f"Espécies antes do filtro: {len(counts)}")
+                logging.info(f"Amostras antes do filtro: {len(y_treino)}")
 
                 mask = y_treino.isin(classes_validas)
                 X_treino = X_treino[mask]
                 y_treino = y_treino[mask]
+                
+                logging.info(f"Espécies depois do filtro: {y_treino.nunique()}")
+                logging.info(f"Amostras depois do filtro: {len(y_treino)}")
+                
+                logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_treino, 

@@ -233,10 +233,18 @@ def do_cv_xgb(X, y, ka, config, param_grid):
                 
                 counts = y_train.value_counts()
                 classes_validas = counts[counts >= 2].index
+                
+                logging.info(f"Espécies antes do filtro: {len(counts)}")
+                logging.info(f"Amostras antes do filtro: {len(y_train)}")
 
                 mask = y_train.isin(classes_validas)
                 X_train = X_train[mask]
                 y_train = y_train[mask]
+                
+                logging.info(f"Espécies depois do filtro: {y_train.nunique()}")
+                logging.info(f"Amostras depois do filtro: {len(y_train)}")
+                
+                logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_train,
