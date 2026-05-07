@@ -11,9 +11,9 @@ from joblib import Parallel, delayed
 
 from sklearn.cluster import KMeans
 from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split, StratifiedGroupKFold
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import f1_score, top_k_accuracy_score, pairwise_distances
+from sklearn.metrics import f1_score, top_k_accuracy_score, pairwise_distances, classification_report
 
 versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
 
@@ -238,6 +238,10 @@ def do_cv_kmeans_svm(X, y, ka, config, k_values, Cs, gammas):
             y_pred = classes[np.argmax(y_proba, axis=1)]
 
             f1, topk = calcular_metricas(y_true, y_pred, y_proba, classes, ka)
+            
+            f1_report = classification_report(y_teste, y_pred)
+            print(f"\n=== Classification Report Fold {foldId + 1} ===")
+            print(f1_report)
             
         else:
             
