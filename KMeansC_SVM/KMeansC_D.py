@@ -290,6 +290,7 @@ def do_cv_kmeansc_d(X, y, ka, config, k_values, Cs, gammas):
                         melhor_k = k
                         melhor_svm = svm
                 
+                svm = melhor_svm
                 
                 salvar_objeto({
                     "kmeans": modelo_kmeans,
@@ -302,12 +303,6 @@ def do_cv_kmeansc_d(X, y, ka, config, k_values, Cs, gammas):
                 logging.info("Modelo salvo.")
             
             ## Teste
-            
-            modelo_kmeans = modelo["kmeans"]
-            scaler_global = modelo["scaler_global"]
-            scaler_dist = modelo["scaler_dist"]
-            svm = modelo["svm"]
-            k = modelo["k"]
 
             X_teste_scaled = scaler_global.transform(X_teste)
 

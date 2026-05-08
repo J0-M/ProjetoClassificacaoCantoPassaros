@@ -347,7 +347,7 @@ def main():
         X, y,
         ka=ka,
         config=config,
-        k_values=[5, 10, 20, 50],
+        k_values=[5, 10, 20, 50, 100],
         Cs = [100, 1000],
         gammas = ['scale', 2e-2]
     )
