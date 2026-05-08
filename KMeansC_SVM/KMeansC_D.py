@@ -51,8 +51,8 @@ DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_svm_treinoSegmentado",
-        path_modelos=f"{DATA_VERSION}/modelos_kmeansc_svm_treinoSegmentado",
+        path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_d_treinoSegmentado",
+        path_modelos=f"{DATA_VERSION}/modelos_kmeansc_d_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
     ),
 }
@@ -190,7 +190,7 @@ def selecionar_svm(Cs, gammas, X_tr, X_val, y_tr, y_val):
 
     return svm
 
-def do_cv_kmeans_svm(X, y, ka, config, k_values, Cs, gammas):
+def do_cv_kmeansc_d(X, y, ka, config, k_values, Cs, gammas):
     
     preparar_pastas(config.path_matrizes, config.path_modelos)
 
@@ -218,7 +218,7 @@ def do_cv_kmeans_svm(X, y, ka, config, k_values, Cs, gammas):
         
         modelo_filename = os.path.join(
             config.path_modelos,
-            f"kmeansc_svm_model_fold_{foldId + 1}.pkl"
+            f"kmeansc_d_model_fold_{foldId + 1}.pkl"
         )
 
         matriz_filename = os.path.join(
@@ -376,7 +376,7 @@ def main():
 
     logging.info(f"Quantidade de amostras: {X.shape}, Quantidade de classes: {y.nunique()}")
     
-    acuracias, topkAcuracias = do_cv_kmeans_svm(
+    acuracias, topkAcuracias = do_cv_kmeansc_d(
         X, y,
         ka=ka,
         config=config,
