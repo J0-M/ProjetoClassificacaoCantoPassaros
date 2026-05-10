@@ -3,7 +3,6 @@ import numpy as npy
 import pickle
 import itertools
 import logging
-import pandas as pd
 
 from datetime import datetime
 from dataclasses import dataclass

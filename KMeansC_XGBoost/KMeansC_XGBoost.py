@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import pandas as pd
 import pickle
 import itertools
 import logging
@@ -9,11 +8,12 @@ from datetime import datetime
 from dataclasses import dataclass
 from joblib import Parallel, delayed
 
+from xgboost import XGBClassifier
+
 from sklearn.cluster import KMeans
-from sklearn.svm import SVC
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import f1_score, top_k_accuracy_score, pairwise_distances, classification_report
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.metrics import f1_score, top_k_accuracy_score, classification_report
 
 versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
 
@@ -51,8 +51,8 @@ DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_d_treinoSegmentado",
-        path_modelos=f"{DATA_VERSION}/modelos_kmeansc_d_treinoSegmentado",
+        path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_xgboost_treinoSegmentado",
+        path_modelos=f"{DATA_VERSION}/modelos_kmeansc_xgboost_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
     ),
 }
@@ -147,50 +147,69 @@ def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
         "labels": np.array(labels),
         "slices": slices
     }
-
-############################################
-# FEATURE EXTRACTION
+    
 ############################################
 
-def gerar_distancias(X_scaled, centroides):
-    # return pairwise_distances(X_scaled, centroides, n_jobs=4)
-    return pairwise_distances(X_scaled, centroides)
+def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classes, n_jobs=4):
 
-def extrair_features_por_k(X_dist_full, modelo_kmeans, k):
-    idxs = []
-    for classe, (start, end) in modelo_kmeans["slices"].items():
-        tamanho = end - start
-        usar = min(k, tamanho)
-        idxs.extend(range(start, start + usar))
-    return X_dist_full[:, idxs]
-
-############################################
-
-def selecionar_svm(Cs, gammas, X_tr, X_val, y_tr, y_val):
-
-    def treino(C, g):
-        svm = SVC(C=C, gamma=g, cache_size=1000)
-        svm.fit(X_tr, y_tr)
-        pred = svm.predict(X_val)
+    def treinar(params):
+        model = XGBClassifier(
+            objective="multi:softprob",
+            num_class=num_classes,
+            tree_method="hist", #aproximately Greedy Algorithm
+            #n_jobs=n_jobs,
+            n_jobs=1,
+            eval_metric="mlogloss",
+            n_estimators=300,
+            early_stopping_rounds=20,
+            **params
+        )
+        
+        model.fit(
+            X_train, y_train,
+            eval_set=[(X_val, y_val)],
+            verbose=False
+        )
+        
+        logging.info(f"Best iteration: {model.best_iteration}")
+        
+        pred = model.predict(X_val)
         return f1_score(y_val, pred, average="macro")
 
-    comb = list(itertools.product(Cs, gammas))
+    combinacoes = list(itertools.product(*param_grid.values()))
+    dicts_param = [dict(zip(param_grid.keys(), combo)) for combo in combinacoes]
 
-    scores = Parallel(n_jobs=4)(
-        delayed(treino)(c, g) for c, g in comb
+    scores = Parallel(n_jobs=n_jobs)(
+        delayed(treinar)(p) for p in dicts_param
     )
 
-    best = np.argmax(scores)
-    C, g = comb[best]
+    best_idx = np.argmax(scores)
+    best_params = dicts_param[best_idx]
+    best_score = scores[best_idx]
 
-    logging.info(f"SVM: C={C}, gamma={g}, F1={scores[best]:.3f}")
+    logging.info(f"Melhor XGBoost: {best_params}, F1 Val: {best_score:.2f}")
 
-    svm = SVC(C=C, gamma=g, probability=True, cache_size=1000)
-    svm.fit(np.vstack([X_tr, X_val]), np.concatenate([y_tr, y_val]))
+    final_model = XGBClassifier(
+        objective="multi:softprob",
+        num_class=num_classes,
+        tree_method="hist",
+        #n_jobs=n_jobs,
+        n_jobs=1,
+        eval_metric="mlogloss",
+        n_estimators=300,
+        early_stopping_rounds=20,
+        **best_params
+    )
 
-    return svm
+    final_model.fit(
+        X_train, y_train,
+        eval_set=[(X_val, y_val)],
+        verbose=False
+    )
 
-def do_cv_kmeansc_d(X, y, ka, config, k_values, Cs, gammas):
+    return final_model, best_params, best_score
+
+def do_cv_kmeansc_xgb(X, y, ka, config, k_values, param_grid):
     
     preparar_pastas(config.path_matrizes, config.path_modelos)
 
@@ -218,7 +237,7 @@ def do_cv_kmeansc_d(X, y, ka, config, k_values, Cs, gammas):
         
         modelo_filename = os.path.join(
             config.path_modelos,
-            f"kmeansc_d_model_fold_{foldId + 1}.pkl"
+            f"kmeansc_xgb_model_fold_{foldId + 1}.pkl"
         )
 
         matriz_filename = os.path.join(
@@ -239,7 +258,7 @@ def do_cv_kmeansc_d(X, y, ka, config, k_values, Cs, gammas):
 
             f1, topk = calcular_metricas(y_true, y_pred, y_proba, classes, ka)
             
-            f1_report = classification_report(y_teste, y_pred)
+            f1_report = classification_report(y_true, y_pred)
             print(f"\n=== Classification Report Fold {foldId + 1} ===")
             print(f1_report)
             
@@ -249,54 +268,65 @@ def do_cv_kmeansc_d(X, y, ka, config, k_values, Cs, gammas):
                 logging.info("Carregando modelo salvo...")
                 modelo = carregar_objeto(modelo_filename)
 
-                modelo_kmeans = modelo["kmeans"]
-                scaler_dist = modelo["scaler_dist"]
-                svm = modelo["svm"]
-                scaler_global = modelo["scaler_global"]
+                xgb = modelo["xgboost"]
+                scaler_global = modelo["scaler"]
+                le = modelo["label_encoder"]
             
             else:
                 logging.info("Treinando modelo...")
             
                 X_train, X_val, y_train, y_val = split_train_val(X_treino, y_treino)
                 
+                le = LabelEncoder()
+                y_train_encoded = le.fit_transform(y_train)
+
+                mask_val = y_val.isin(le.classes_)
+                X_val = X_val[mask_val]
+                y_val = y_val[mask_val]
+                y_val_encoded = le.transform(y_val)
+
+                num_classes = len(le.classes_)
+                
                 scaler_global = StandardScaler()
+                
                 X_train_scaled = scaler_global.fit_transform(X_train)
                 X_val_scaled = scaler_global.transform(X_val)
-                
-                k_max = max(k_values)
-                modelo_kmeans = treinar_kmeansc(X_train_scaled, y_train, k_max)
-
-                X_tr_dist = gerar_distancias(X_train_scaled, modelo_kmeans["centroides"])
-                X_val_dist = gerar_distancias(X_val_scaled, modelo_kmeans["centroides"])
-
-                scaler_dist = StandardScaler()
-                X_tr_dist = scaler_dist.fit_transform(X_tr_dist)
-                X_val_dist = scaler_dist.transform(X_val_dist)
 
                 melhor_f1 = -1
                 
                 for k in k_values:
-
-                    X_tr_k = extrair_features_por_k(X_tr_dist, modelo_kmeans, k)
-                    X_val_k = extrair_features_por_k(X_val_dist, modelo_kmeans, k)
-
-                    svm = selecionar_svm(Cs, gammas, X_tr_k, X_val_k, y_train, y_val)
                     
-                    pred = svm.predict(X_val_k)
-                    f1_val = f1_score(y_val, pred, average="macro")
+                    logging.info(f"Treinando com k={k}")
 
+                    modelo_kmeans = treinar_kmeansc(X_train_scaled, y_train.values, k)
+                    
+                    X_proto = modelo_kmeans["centroides"]
+                    y_proto = modelo_kmeans["labels"]
+                    
+                    y_proto_encoded = le.transform(y_proto)
+                    
+                    xgb, best_params, score = selecionar_melhor_xgb(param_grid, X_proto, X_val_scaled, y_proto_encoded, y_val_encoded, num_classes)
+                    
+                    y_pred_val = xgb.predict(X_val_scaled)
+
+                    f1_val = f1_score(y_val_encoded, y_pred_val, average="macro")
+                    
+                    logging.info(f"k={k} -> F1={f1_val:.3f}")
+                    
                     if f1_val > melhor_f1:
+
                         melhor_f1 = f1_val
+                        melhor_kmeans = (modelo_kmeans)
+                        melhor_xgb = xgb
                         melhor_k = k
-                        melhor_svm = svm
                 
-                svm = melhor_svm
+                xgb = melhor_xgb
                 
                 salvar_objeto({
-                    "kmeans": modelo_kmeans,
-                    "scaler_dist": scaler_dist,
-                    "scaler_global": scaler_global,
-                    "svm": melhor_svm,
+                    "xgboost": xgb,
+                    "kmeans": melhor_kmeans,
+                    "scaler": scaler_global,
+                    "label_encoder": le,
                     "k": melhor_k
                 }, modelo_filename)
 
@@ -304,26 +334,25 @@ def do_cv_kmeansc_d(X, y, ka, config, k_values, Cs, gammas):
             
             ## Teste
 
-            X_teste_scaled = scaler_global.transform(X_teste)
+            mask_test = y_teste.isin(le.classes_)
 
-            X_teste_dist = gerar_distancias(
-                X_teste_scaled,
-                modelo_kmeans["centroides"]
-            )
-            X_teste_dist = scaler_dist.transform(X_teste_dist)
+            X_test_filtrado = X_teste[mask_test]
+            y_test_filtrado = y_teste[mask_test]
+
+            y_test_encoded = le.transform(y_test_filtrado)
             
-            X_teste_k = extrair_features_por_k(X_teste_dist, modelo_kmeans, k)
+            X_test_scaled = scaler_global.transform(X_test_filtrado)
 
-            y_pred = svm.predict(X_teste_k)
-            y_proba = svm.predict_proba(X_teste_k)
+            y_pred = xgb.predict(X_test_scaled)
+            y_proba = xgb.predict_proba(X_test_scaled)
 
-            f1, topk = calcular_metricas(y_teste, y_pred, y_proba, svm.classes_, ka)
+            f1, topk = calcular_metricas(y_test_encoded, y_pred, y_proba, xgb.classes_, ka)
             
             salvar_objeto({
                 "fold": foldId,
-                "y_true": y_teste,
+                "y_true": y_test_encoded,
                 "y_proba": y_proba,
-                "classes": svm.classes_
+                "classes": xgb.classes_
             }, matriz_filename)
             
             logging.info("Matriz salva.")
@@ -371,13 +400,20 @@ def main():
 
     logging.info(f"Quantidade de amostras: {X.shape}, Quantidade de classes: {y.nunique()}")
     
-    acuracias, topkAcuracias = do_cv_kmeansc_d(
-        X, y,
+    param_grid = {
+        "max_depth": [4, 6],
+        "learning_rate": [0.05, 0.1],
+        "subsample": [0.7, 1.0],
+        "colsample_bytree": [0.7, 1.0]
+    }
+    
+    acuracias, topkAcuracias = do_cv_kmeansc_xgb(
+        X,
+        y,
         ka=ka,
         config=config,
-        k_values=[5, 10, 20, 50],
-        Cs = [100, 1000],
-        gammas = ['scale', 2e-2]
+        k_values=[5, 10, 20, 50, 100],
+        param_grid=param_grid
     )
     
     print(f"\n-- TESTE {config.nome.upper()} --")
