@@ -307,6 +307,7 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                 scaler_dist = modelo["scaler_dist"]
                 xgb = modelo["xgboost"]
                 le = modelo["label_encoder"]
+                k = modelo["k"]
             
             else:
                 logging.info("Treinando modelo...")
@@ -340,6 +341,7 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                 X_val_dist = scaler_dist.transform(X_val_dist)              
 
                 melhor_f1 = -1
+                melhor_k = -1
                 
                 for k in k_values:
                     
@@ -354,8 +356,10 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                     if f1_val > melhor_f1:
                         melhor_f1 = f1_val
                         melhor_xgb = xgb
+                        melhor_k = k
                 
                 xgb = melhor_xgb
+                k = melhor_k
                 
                 salvar_objeto({
                     "kmeans": modelo_kmeans,
@@ -363,6 +367,7 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                     "scaler_dist": scaler_dist,
                     "xgboost": melhor_xgb,
                     "label_encoder": le,
+                    "k": k,
                 }, modelo_filename)
 
                 logging.info("Modelo salvo.")
@@ -381,7 +386,7 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
             X_test_dist = gerar_distancias(X_test_scaled, modelo_kmeans["centroides"])
             X_test_dist = scaler_dist.transform(X_test_dist)
             
-            X_test_k = extrair_menor_dist_por_classe(X_test_dist, modelo_kmeans)
+            X_test_k = extrair_menor_dist_por_classe(X_test_dist, modelo_kmeans, k)
 
             y_pred_encoded = xgb.predict(X_test_k)
             y_pred = le.inverse_transform(y_pred_encoded)
