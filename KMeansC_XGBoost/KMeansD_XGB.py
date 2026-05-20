@@ -112,32 +112,32 @@ def split_train_val(X, y):
     
 ################################
 
-def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
+def treinar_kmeansc(X, y, ka):
     
     centroides = []
     labels = []
     slices = {}
     start = 0
     
-    classes = np.unique(y_treino)
+    classes = sorted(np.unique(y))
     
     for classe in classes:
-        X_classe = X_treino_scaled[y_treino == classe]
+        X_classe = X[y == classe]
         n_amostras = len(X_classe)
         
-        k = min(len(X_classe), k_max)
+        k = min(n_amostras, ka)
         
         if k == n_amostras:
-            c = X_classe
+            ctrds = X_classe
         else:
             kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto")
             kmeans.fit(X_classe)
-            c = kmeans.cluster_centers_
+            ctrds = kmeans.cluster_centers_
 
-        end = start + len(c)
+        end = start + len(ctrds)
 
-        centroides.append(c)
-        labels.extend([classe] * len(c))
+        centroides.append(ctrds)
+        labels.extend([classe] * len(ctrds))
         slices[classe] = (start, end)
 
         start = end
@@ -152,17 +152,26 @@ def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
 # FEATURE EXTRACTION
 ############################################
 
-def gerar_distancias(X_scaled, centroides):
+def gerar_distancias(X, centroides):
     # return pairwise_distances(X_scaled, centroides, n_jobs=4)
-    return pairwise_distances(X_scaled, centroides)
+    return pairwise_distances(X, centroides)
 
-def extrair_features_por_k(X_dist_full, modelo_kmeans, k):
-    idxs = []
-    for classe, (start, end) in modelo_kmeans["slices"].items():
-        tamanho = end - start
-        usar = min(k, tamanho)
-        idxs.extend(range(start, start + usar))
-    return X_dist_full[:, idxs]
+def extrair_menor_dist_por_classe(X, modelo_kmeans, k):
+    features = []
+
+    for classe in sorted(modelo_kmeans["slices"].keys()):
+        start, end = modelo_kmeans["slices"][classe]
+
+        dist_classe = X[:, start:end]
+        
+        k_eff = min(k, dist_classe.shape[1])
+        
+        dist_classe = dist_classe[:, :k_eff] 
+
+        menor_dist = np.min(dist_classe, axis=1)
+        features.append(menor_dist)
+
+    return np.column_stack(features)
 
 ############################################
 
@@ -176,7 +185,7 @@ def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classe
             #n_jobs=n_jobs,
             n_jobs=1,
             eval_metric="mlogloss",
-            n_estimators=300,
+            n_estimators=200,
             early_stopping_rounds=20,
             **params
         )
@@ -267,7 +276,7 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
 
             matriz = carregar_objeto(matriz_filename)
             
-            le = modelo["label_encoder"]
+            le = matriz["label_encoder"]
 
             y_true = matriz["y_true"]
             y_proba = matriz["y_proba"]
@@ -280,7 +289,10 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
             y_true = le.inverse_transform(y_true)
             y_pred = le.inverse_transform(y_pred_encoded)
             
-            f1_report = classification_report(y_teste, y_pred)
+            mask_test = y_teste.isin(le.classes_)
+            y_test_filtrado = y_teste[mask_test]
+            
+            f1_report = classification_report(y_test_filtrado, y_pred)
             print(f"\n=== Classification Report Fold {foldId + 1} ===")
             print(f1_report)
             
@@ -295,7 +307,6 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                 scaler_dist = modelo["scaler_dist"]
                 xgb = modelo["xgboost"]
                 le = modelo["label_encoder"]
-                melhor_k = modelo["k"]
             
             else:
                 logging.info("Treinando modelo...")
@@ -316,9 +327,8 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                 
                 X_train_scaled = scaler_global.fit_transform(X_train)
                 X_val_scaled = scaler_global.transform(X_val)
-                
-                k_max = max(k_values)
 
+                k_max = max(k_values)
                 modelo_kmeans = treinar_kmeansc(X_train_scaled,y_train.values,k_max)
                 
                 X_tr_dist = gerar_distancias(X_train_scaled, modelo_kmeans["centroides"])
@@ -327,25 +337,23 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                 scaler_dist = StandardScaler()
 
                 X_tr_dist = scaler_dist.fit_transform(X_tr_dist)
-                X_val_dist = scaler_dist.transform(X_val_dist)               
+                X_val_dist = scaler_dist.transform(X_val_dist)              
 
                 melhor_f1 = -1
                 
                 for k in k_values:
+                    
+                    X_tr_k = extrair_menor_dist_por_classe(X_tr_dist, modelo_kmeans, k)
+                    X_val_k = extrair_menor_dist_por_classe(X_val_dist, modelo_kmeans, k) 
 
-                    X_tr_k = extrair_features_por_k(X_tr_dist, modelo_kmeans, k)
-                    X_val_k = extrair_features_por_k(X_val_dist, modelo_kmeans, k)
-
-                    xgb, best_params, best_score = selecionar_melhor_xgb(param_grid, X_tr_k, X_val_k, y_train_encoded, y_val_encoded, num_classes)
+                    xgb, _, _ = selecionar_melhor_xgb(param_grid, X_tr_k, X_val_k, y_train_encoded, y_val_encoded, num_classes)
                     
                     y_pred_val = xgb.predict(X_val_k)
                     f1_val = f1_score(y_val_encoded, y_pred_val, average="macro")
 
                     if f1_val > melhor_f1:
                         melhor_f1 = f1_val
-                        melhor_k = k
                         melhor_xgb = xgb
-                        melhor_params = best_params
                 
                 xgb = melhor_xgb
                 
@@ -355,7 +363,6 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                     "scaler_dist": scaler_dist,
                     "xgboost": melhor_xgb,
                     "label_encoder": le,
-                    "k": melhor_k
                 }, modelo_filename)
 
                 logging.info("Modelo salvo.")
@@ -374,7 +381,7 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
             X_test_dist = gerar_distancias(X_test_scaled, modelo_kmeans["centroides"])
             X_test_dist = scaler_dist.transform(X_test_dist)
             
-            X_test_k = extrair_features_por_k(X_test_dist, modelo_kmeans, melhor_k)
+            X_test_k = extrair_menor_dist_por_classe(X_test_dist, modelo_kmeans)
 
             y_pred_encoded = xgb.predict(X_test_k)
             y_pred = le.inverse_transform(y_pred_encoded)
@@ -387,6 +394,7 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                 "fold": foldId,
                 "y_true": y_test_encoded,
                 "y_proba": y_proba,
+                "label_encoder": le,
                 "classes": xgb.classes_
             }, matriz_filename)
             
@@ -447,7 +455,7 @@ def main():
         y,
         ka=ka,
         config=config,
-        k_values=[20, 50, 100],
+        k_values=[50, 100],
         param_grid=param_grid
     )
     
