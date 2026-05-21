@@ -155,13 +155,13 @@ def gerar_distancias(X_scaled, centroides):
     # return pairwise_distances(X_scaled, centroides, n_jobs=4)
     return pairwise_distances(X_scaled, centroides)
 
-def extrair_features_por_k(X_dist_full, modelo_kmeans, k):
+def extrair_features_por_k(X, modelo_kmeans, k):
     idxs = []
     for classe, (start, end) in modelo_kmeans["slices"].items():
         tamanho = end - start
         usar = min(k, tamanho)
         idxs.extend(range(start, start + usar))
-    return X_dist_full[:, idxs]
+    return X[:, idxs]
 
 ############################################
 
@@ -238,9 +238,9 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
 
             f1, topk = calcular_metricas(y_true, y_pred, y_proba, classes, ka)
             
-            f1_report = classification_report(y_teste, y_pred)
-            print(f"\n=== Classification Report Fold {foldId + 1} ===")
-            print(f1_report)
+            #f1_report = classification_report(y_teste, y_pred)
+            #print(f"\n=== Classification Report Fold {foldId + 1} ===")
+            #print(f1_report)
             
         else:
             
@@ -374,7 +374,7 @@ def main():
         X, y,
         ka=ka,
         config=config,
-        k_values=[5, 10, 20, 50],
+        k_values=[10, 20, 50],
         Cs = [100, 1000],
         gammas = ['scale', 2e-2]
     )
