@@ -156,21 +156,22 @@ def gerar_distancias(X, centroides):
     # return pairwise_distances(X_scaled, centroides, n_jobs=4)
     return pairwise_distances(X, centroides)
 
-def extrair_features_por_k(X, modelo_kmeans, k):
-
-    idxs = []
+def extrair_menor_dist_por_classe(X, modelo_kmeans, k):
+    features = []
 
     for classe in sorted(modelo_kmeans["slices"].keys()):
-
         start, end = modelo_kmeans["slices"][classe]
 
-        tamanho = end - start
+        dist_classe = X[:, start:end]
+        
+        k_eff = min(k, dist_classe.shape[1])
+        
+        dist_classe = dist_classe[:, :k_eff] 
 
-        usar = min(k, tamanho)
+        menor_dist = np.min(dist_classe, axis=1)
+        features.append(menor_dist)
 
-        idxs.extend(range(start, start + usar))
-
-    return X[:, idxs]
+    return np.column_stack(features)
 
 ############################################
 
@@ -344,8 +345,8 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                 
                 for k in k_values:
                     
-                    X_tr_k = extrair_features_por_k(X_tr_dist, modelo_kmeans, k)
-                    X_val_k = extrair_features_por_k(X_val_dist, modelo_kmeans, k) 
+                    X_tr_k = extrair_menor_dist_por_classe(X_tr_dist, modelo_kmeans, k)
+                    X_val_k = extrair_menor_dist_por_classe(X_val_dist, modelo_kmeans, k) 
 
                     xgb, _, _ = selecionar_melhor_xgb(param_grid, X_tr_k, X_val_k, y_train_encoded, y_val_encoded, num_classes)
                     
@@ -385,7 +386,7 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
             X_test_dist = gerar_distancias(X_test_scaled, modelo_kmeans["centroides"])
             X_test_dist = scaler_dist.transform(X_test_dist)
             
-            X_test_k = extrair_features_por_k(X_test_dist, modelo_kmeans, k)
+            X_test_k = extrair_menor_dist_por_classe(X_test_dist, modelo_kmeans, k)
 
             y_pred_encoded = xgb.predict(X_test_k)
             y_pred = le.inverse_transform(y_pred_encoded)
@@ -459,7 +460,7 @@ def main():
         y,
         ka=ka,
         config=config,
-        k_values=[10, 20, 50],
+        k_values=[50, 100],
         param_grid=param_grid
     )
     
