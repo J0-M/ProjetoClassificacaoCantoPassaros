@@ -156,7 +156,7 @@ def gerar_distancias(X, centroides):
     # return pairwise_distances(X_scaled, centroides, n_jobs=4)
     return pairwise_distances(X, centroides)
 
-def extrair_menor_dist_por_classe(X, modelo_kmeans, k):
+def extrair_menor_dist_por_classe(X, modelo_kmeans, k): # Nessa versão ele pega as k menores distancias de centroides, pois do outro jeito é MUITO custoso, especialemente para xgboost
     features = []
 
     for classe in sorted(modelo_kmeans["slices"].keys()):
