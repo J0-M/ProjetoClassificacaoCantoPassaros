@@ -156,22 +156,13 @@ def gerar_distancias(X, centroides):
     # return pairwise_distances(X_scaled, centroides, n_jobs=4)
     return pairwise_distances(X, centroides)
 
-def extrair_menor_dist_por_classe(X, modelo_kmeans, k): # Nessa versão ele pega as k menores distancias de centroides, pois do outro jeito é MUITO custoso, especialemente para xgboost
-    features = []
-
-    for classe in sorted(modelo_kmeans["slices"].keys()):
-        start, end = modelo_kmeans["slices"][classe]
-
-        dist_classe = X[:, start:end]
-        
-        k_eff = min(k, dist_classe.shape[1])
-        
-        dist_classe = dist_classe[:, :k_eff] 
-
-        menor_dist = np.min(dist_classe, axis=1)
-        features.append(menor_dist)
-
-    return np.column_stack(features)
+def extrair_features_por_k(X, modelo_kmeans, k):
+    idxs = []
+    for classe, (start, end) in modelo_kmeans["slices"].items():
+        tamanho = end - start
+        usar = min(k, tamanho)
+        idxs.extend(range(start, start + usar))
+    return X[:, idxs]
 
 ############################################
 
@@ -221,7 +212,7 @@ def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classe
         #n_jobs=n_jobs,
         n_jobs=1,
         eval_metric="mlogloss",
-        n_estimators=300,
+        n_estimators=200,
         early_stopping_rounds=20,
         **best_params
     )
@@ -345,8 +336,8 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
                 
                 for k in k_values:
                     
-                    X_tr_k = extrair_menor_dist_por_classe(X_tr_dist, modelo_kmeans, k)
-                    X_val_k = extrair_menor_dist_por_classe(X_val_dist, modelo_kmeans, k) 
+                    X_tr_k = extrair_features_por_k(X_tr_dist, modelo_kmeans, k)
+                    X_val_k = extrair_features_por_k(X_val_dist, modelo_kmeans, k) 
 
                     xgb, _, _ = selecionar_melhor_xgb(param_grid, X_tr_k, X_val_k, y_train_encoded, y_val_encoded, num_classes)
                     
@@ -386,7 +377,7 @@ def do_cv_kmeansd_xgb(X, y, ka, config, k_values, param_grid):
             X_test_dist = gerar_distancias(X_test_scaled, modelo_kmeans["centroides"])
             X_test_dist = scaler_dist.transform(X_test_dist)
             
-            X_test_k = extrair_menor_dist_por_classe(X_test_dist, modelo_kmeans, k)
+            X_test_k = extrair_features_por_k(X_test_dist, modelo_kmeans, k)
 
             y_pred_encoded = xgb.predict(X_test_k)
             y_pred = le.inverse_transform(y_pred_encoded)
@@ -451,7 +442,7 @@ def main():
     param_grid = {
         "max_depth": [4, 6],
         "learning_rate": [0.05, 0.1],
-        "subsample": [0.7, 1.0],
+        "subsample": [1.0],
         "colsample_bytree": [0.7, 1.0]
     }
 
@@ -460,7 +451,7 @@ def main():
         y,
         ka=ka,
         config=config,
-        k_values=[50, 100],
+        k_values=[20, 50],
         param_grid=param_grid
     )
     
