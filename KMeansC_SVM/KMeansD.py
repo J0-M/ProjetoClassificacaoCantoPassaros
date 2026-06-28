@@ -151,17 +151,20 @@ def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
 # FEATURE EXTRACTION
 ############################################
 
-def gerar_distancias(X_scaled, centroides):
-    # return pairwise_distances(X_scaled, centroides, n_jobs=4)
-    return pairwise_distances(X_scaled, centroides)
-
-def extrair_features_por_k(X, modelo_kmeans, k):
+def obter_indices_centroides_por_k(modelo_kmeans, k):
     idxs = []
     for classe, (start, end) in modelo_kmeans["slices"].items():
         tamanho = end - start
         usar = min(k, tamanho)
         idxs.extend(range(start, start + usar))
-    return X[:, idxs]
+    return np.array(idxs, dtype=int)
+
+def gerar_distancias_por_indices(X_scaled, centroides, idxs):
+    return pairwise_distances(X_scaled, centroides[idxs])
+
+def gerar_distancias_por_k(X_scaled, modelo_kmeans, k):
+    idxs = obter_indices_centroides_por_k(modelo_kmeans, k)
+    return gerar_distancias_por_indices(X_scaled, modelo_kmeans["centroides"], idxs)
 
 ############################################
 
@@ -252,6 +255,7 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
                 scaler_dist = modelo["scaler_dist"]
                 svm = modelo["svm"]
                 scaler_global = modelo["scaler_global"]
+                melhor_k = modelo["k"]
             
             else:
                 logging.info("Treinando modelo...")
@@ -265,31 +269,33 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
                 k_max = max(k_values)
                 modelo_kmeans = treinar_kmeansc(X_train_scaled, y_train, k_max)
 
-                X_tr_dist = gerar_distancias(X_train_scaled, modelo_kmeans["centroides"])
-                X_val_dist = gerar_distancias(X_val_scaled, modelo_kmeans["centroides"])
-
-                scaler_dist = StandardScaler()
-                X_tr_dist = scaler_dist.fit_transform(X_tr_dist)
-                X_val_dist = scaler_dist.transform(X_val_dist)
-
                 melhor_f1 = -1
+                melhor_k = None
+                melhor_svm = None
+                melhor_scaler_dist = None
                 
                 for k in k_values:
-
-                    X_tr_k = extrair_features_por_k(X_tr_dist, modelo_kmeans, k)
-                    X_val_k = extrair_features_por_k(X_val_dist, modelo_kmeans, k)
-
+                    X_tr_k = gerar_distancias_por_k(X_train_scaled, modelo_kmeans, k)
+                    X_val_k = gerar_distancias_por_k(X_val_scaled, modelo_kmeans, k)
+                    
+                    scaler_dist = StandardScaler()
+                    
+                    X_tr_k = scaler_dist.fit_transform(X_tr_k)    
+                    X_val_k = scaler_dist.transform(X_val_k)
+                    
                     svm = selecionar_svm(Cs, gammas, X_tr_k, X_val_k, y_train, y_val)
                     
                     pred = svm.predict(X_val_k)
                     f1_val = f1_score(y_val, pred, average="macro")
-
-                    if f1_val > melhor_f1:
-                        melhor_f1 = f1_val
-                        melhor_k = k
-                        melhor_svm = svm
+                    
+                    if f1_val > melhor_f1:        
+                        melhor_f1 = f1_val        
+                        melhor_k = k        
+                        melhor_svm = svm        
+                        melhor_scaler_dist = scaler_dist
                 
                 svm = melhor_svm
+                scaler_dist = melhor_scaler_dist
                 
                 salvar_objeto({
                     "kmeans": modelo_kmeans,
@@ -305,13 +311,8 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
 
             X_teste_scaled = scaler_global.transform(X_teste)
 
-            X_teste_dist = gerar_distancias(
-                X_teste_scaled,
-                modelo_kmeans["centroides"]
-            )
-            X_teste_dist = scaler_dist.transform(X_teste_dist)
-            
-            X_teste_k = extrair_features_por_k(X_teste_dist, modelo_kmeans, k)
+            X_teste_k = gerar_distancias_por_k(X_teste_scaled, modelo_kmeans, melhor_k)
+            X_teste_k = scaler_dist.transform(X_teste_k)
 
             y_pred = svm.predict(X_teste_k)
             y_proba = svm.predict_proba(X_teste_k)

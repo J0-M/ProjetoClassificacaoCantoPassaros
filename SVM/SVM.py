@@ -319,6 +319,7 @@ def main():
     
     acuracias, topkAcuracias = do_cv_svm(
         X, y, ka, config, 
+        # kernel = ['rbf', 'poly', 'sigmoid'],
         Cs=[1, 10, 100, 1000], 
         gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4]
     )
