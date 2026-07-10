@@ -34,8 +34,6 @@ if idx < 0 or idx >= len(versoes_validas):
 
 DATA_VERSION = versoes_validas[idx]
 
-########## CONFIGURAÇÃO LOGGING #################
-
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
 @dataclass
@@ -55,8 +53,6 @@ DATASET_CONFIGS = {
         path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
     ),
 }
-
-########## FUNÇÕES UTILITÁRIAS ##################
 
 def salvar_objeto(obj, caminho):
     os.makedirs(os.path.dirname(caminho), exist_ok=True)
@@ -87,10 +83,6 @@ def calcular_metricas(y_true, y_pred, y_proba, classes, k):
 
     return f1, topk
 
-############################################
-# SPLIT
-############################################
-
 def split_train_val(X, y):
     counts = y.value_counts()
     classes_validas = counts[counts >= 2].index
@@ -109,36 +101,40 @@ def split_train_val(X, y):
     
     return train_test_split(X, y, test_size=0.2, stratify=y, shuffle=True, random_state=1)
     
-################################
+
+def treinar_kmeansc_worker(classe, X_treino_scaled, y_treino, k_max):
+    X_classe = X_treino_scaled[y_treino == classe]
+    n_amostras = len(X_classe)
+    k = min(n_amostras, k_max)
+    
+    if k == n_amostras:
+        c = X_classe
+    else:
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto")
+        kmeans.fit(X_classe)
+        c = kmeans.cluster_centers_
+        
+    return classe, c
 
 def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
+    
+    classes = np.unique(y_treino)
+    
+    resultados = Parallel(n_jobs=-1)(
+        delayed(treinar_kmeansc_worker)(classe, X_treino_scaled, y_treino, k_max) 
+        for classe in classes
+    )
     
     centroides = []
     labels = []
     slices = {}
     start = 0
     
-    classes = np.unique(y_treino)
-    
-    for classe in classes:
-        X_classe = X_treino_scaled[y_treino == classe]
-        n_amostras = len(X_classe)
-        
-        k = min(len(X_classe), k_max)
-        
-        if k == n_amostras:
-            c = X_classe
-        else:
-            kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto")
-            kmeans.fit(X_classe)
-            c = kmeans.cluster_centers_
-
+    for classe, c in resultados:
         end = start + len(c)
-
         centroides.append(c)
         labels.extend([classe] * len(c))
         slices[classe] = (start, end)
-
         start = end
     
     return {
@@ -147,24 +143,16 @@ def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
         "slices": slices
     }
 
-############################################
-# FEATURE EXTRACTION
-############################################
+def gerar_distancias(X_scaled, centroides):
+    return pairwise_distances(X_scaled, centroides, n_jobs=-1)
 
-def obter_indices_centroides_por_k(modelo_kmeans, k):
+def extrair_features_por_k(X, modelo_kmeans, k):
     idxs = []
     for classe, (start, end) in modelo_kmeans["slices"].items():
         tamanho = end - start
         usar = min(k, tamanho)
         idxs.extend(range(start, start + usar))
-    return np.array(idxs, dtype=int)
-
-def gerar_distancias_por_indices(X_scaled, centroides, idxs):
-    return pairwise_distances(X_scaled, centroides[idxs])
-
-def gerar_distancias_por_k(X_scaled, modelo_kmeans, k):
-    idxs = obter_indices_centroides_por_k(modelo_kmeans, k)
-    return gerar_distancias_por_indices(X_scaled, modelo_kmeans["centroides"], idxs)
+    return X[:, idxs]
 
 ############################################
 
@@ -178,19 +166,20 @@ def selecionar_svm(Cs, gammas, X_tr, X_val, y_tr, y_val):
 
     comb = list(itertools.product(Cs, gammas))
 
-    scores = Parallel(n_jobs=4)(
+    scores = Parallel(n_jobs=-1)(
         delayed(treino)(c, g) for c, g in comb
     )
 
     best = np.argmax(scores)
     C, g = comb[best]
+    best_score = scores[best]
 
     logging.info(f"SVM: C={C}, gamma={g}, F1={scores[best]:.3f}")
 
     svm = SVC(C=C, gamma=g, probability=True, cache_size=1000)
     svm.fit(np.vstack([X_tr, X_val]), np.concatenate([y_tr, y_val]))
 
-    return svm
+    return svm, best_score
 
 def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
     
@@ -269,33 +258,31 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
                 k_max = max(k_values)
                 modelo_kmeans = treinar_kmeansc(X_train_scaled, y_train, k_max)
 
+                X_tr_dist = gerar_distancias(X_train_scaled, modelo_kmeans["centroides"])
+                X_val_dist = gerar_distancias(X_val_scaled, modelo_kmeans["centroides"])
+
+                scaler_dist = StandardScaler()
+                X_tr_dist = scaler_dist.fit_transform(X_tr_dist)
+                X_val_dist = scaler_dist.transform(X_val_dist)
+
                 melhor_f1 = -1
-                melhor_k = None
-                melhor_svm = None
-                melhor_scaler_dist = None
                 
                 for k in k_values:
-                    X_tr_k = gerar_distancias_por_k(X_train_scaled, modelo_kmeans, k)
-                    X_val_k = gerar_distancias_por_k(X_val_scaled, modelo_kmeans, k)
+
+                    X_tr_k = extrair_features_por_k(X_tr_dist, modelo_kmeans, k)
+                    X_val_k = extrair_features_por_k(X_val_dist, modelo_kmeans, k)
+
+                    svm, f1_val = selecionar_svm(Cs, gammas, X_tr_k, X_val_k, y_train, y_val)
                     
-                    scaler_dist = StandardScaler()
-                    
-                    X_tr_k = scaler_dist.fit_transform(X_tr_k)    
-                    X_val_k = scaler_dist.transform(X_val_k)
-                    
-                    svm = selecionar_svm(Cs, gammas, X_tr_k, X_val_k, y_train, y_val)
-                    
-                    pred = svm.predict(X_val_k)
-                    f1_val = f1_score(y_val, pred, average="macro")
-                    
-                    if f1_val > melhor_f1:        
-                        melhor_f1 = f1_val        
-                        melhor_k = k        
-                        melhor_svm = svm        
-                        melhor_scaler_dist = scaler_dist
+                    #pred = svm.predict(X_val_k)
+                    #f1_val = f1_score(y_val, pred, average="macro")
+
+                    if f1_val > melhor_f1:
+                        melhor_f1 = f1_val
+                        melhor_k = k
+                        melhor_svm = svm
                 
                 svm = melhor_svm
-                scaler_dist = melhor_scaler_dist
                 
                 salvar_objeto({
                     "kmeans": modelo_kmeans,
@@ -308,11 +295,15 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
                 logging.info("Modelo salvo.")
             
             ## Teste
-
             X_teste_scaled = scaler_global.transform(X_teste)
 
-            X_teste_k = gerar_distancias_por_k(X_teste_scaled, modelo_kmeans, melhor_k)
-            X_teste_k = scaler_dist.transform(X_teste_k)
+            X_teste_dist = gerar_distancias(
+                X_teste_scaled,
+                modelo_kmeans["centroides"]
+            )
+            X_teste_dist = scaler_dist.transform(X_teste_dist)
+            
+            X_teste_k = extrair_features_por_k(X_teste_dist, modelo_kmeans, melhor_k)
 
             y_pred = svm.predict(X_teste_k)
             y_proba = svm.predict_proba(X_teste_k)
@@ -376,8 +367,8 @@ def main():
         ka=ka,
         config=config,
         k_values=[10, 20, 50],
-        Cs = [100, 1000],
-        gammas = ['scale', 2e-2]
+        Cs = [10, 100, 1000],
+        gammas = ['scale', 'auto']
     )
     
     print(f"\n-- TESTE {config.nome.upper()} --")
