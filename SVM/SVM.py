@@ -13,6 +13,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
+CV_SPLITS = [2, 3, 5, 10]
+
 versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
 
 print("Selecione a versão do dataset:")
@@ -50,14 +52,14 @@ DATASET_CONFIGS = {
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_svm_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_svm_treinoSegmentado",
-        path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
+        path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_svm_treinoCompleto",
         path_modelos=f"{DATA_VERSION}/modelos_svm_treinoCompleto",
-        path_folds=f"../folds/{DATA_VERSION}/completo/stratified_group_kfold_10.pkl"
+        path_folds=f"../folds/{DATA_VERSION}/completo"
     ),
 }
 
@@ -132,14 +134,19 @@ def exibir_resultados(svm, X_test_scaled, y_test, ka):
     logging.info(f"Top-{ka} Accuracy: {topk_acc:.2f}")
 
 
-def do_cv_svm(X, y, ka, config: DatasetConfig, Cs, gammas):
+def do_cv_svm(X, y, ka, n_splits, config: DatasetConfig, Cs, gammas):
 
-    preparar_pastas(config.path_matrizes, config.path_modelos)
+    path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
+    path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
+        
+    preparar_pastas(path_matrizes, path_modelos)
+        
+    path_folds = os.path.join(config.path_folds, f"stratified_group_kfold_{n_splits}.pkl")
     
-    if not os.path.exists(config.path_folds):
+    if not os.path.exists(path_folds):
         raise FileNotFoundError("Folds ainda não foram gerados.")
     
-    folds = carregar_objeto(config.path_folds)
+    folds = carregar_objeto(path_folds)
     
     f1_scores, topkScores = [], []
     
@@ -149,7 +156,7 @@ def do_cv_svm(X, y, ka, config: DatasetConfig, Cs, gammas):
         idx_treino = fold_dict["train_idx"]
         idx_teste = fold_dict["test_idx"]
 
-        logging.info(f"\n=== Fold {foldId + 1} ===")
+        logging.info(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
 
         X_treino = X.iloc[idx_treino]
         y_treino = y.iloc[idx_treino]
@@ -317,18 +324,36 @@ def main():
 
     logging.info(f"Quantidade de amostras: {X.shape}, Quantidade de classes: {y.nunique()}")
     
-    acuracias, topkAcuracias = do_cv_svm(
-        X, y, ka, config, 
-        # kernel = ['rbf', 'poly', 'sigmoid'],
-        Cs=[1, 10, 100, 1000], 
-        gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4]
-    )
+    resultados = {}
     
-    print(f"\n-- TESTE {config.nome.upper()} --")
-    print("F1-Score Macro:")
-    print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {np.mean(acuracias):.2f} ± {np.std(acuracias):.2f}")
-    print(f"\nTop-{ka} Score:")
-    print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {np.mean(topkAcuracias):.2f} ± {np.std(topkAcuracias):.2f}")
+    for n_splits in CV_SPLITS:
+        logging.info(f"EXPERIMENTO {n_splits}-FOLD")
+    
+        acuracias, topkAcuracias = do_cv_svm(
+            X, y, ka, n_splits, config, 
+            # kernel = ['rbf', 'poly', 'sigmoid'],
+            Cs=[1, 10, 100, 1000], 
+            gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4]
+        )
+            
+        resultados[n_splits] = {
+            "f1": acuracias,
+            "topk": topkAcuracias
+        }
+
+        print(f"\n-- TESTE {config.nome.upper()} ({n_splits}-FOLD)--")
+        print("F1-Score Macro:")
+        print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {np.mean(acuracias):.2f} ± {np.std(acuracias):.2f}")
+        print(f"\nTop-{ka} Score:")
+        print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {np.mean(topkAcuracias):.2f} ± {np.std(topkAcuracias):.2f}")
+            
+    for n_splits, resultado in resultados.items():
+        f1s = resultado["f1"]
+        topks = resultado["topk"]
+            
+        print(f"\n{n_splits}-FOLD:")
+        print(f"F1 Macro = {np.mean(f1s):.2f}±{np.std(f1s):.2f}")
+        print(f"Top-{ka} = {np.mean(topks):.2f} ± {np.std(topks):.2f}")
 
 if __name__ == '__main__':
     startTime = datetime.now()

@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 
 DATA_VERSION = "v4_novas_features"
-CV_SPLITS = 10
+CV_SPLITS = [2, 3, 5, 10]
 RANDOM_STATE = 1
 
 
@@ -14,16 +14,16 @@ def salvar_objeto(obj, caminho):
     with open(caminho, "wb") as f:
         pickle.dump(obj, f)
 
-def preparar_dataframe(df):
+def preparar_dataframe(df, n_splits):
     df = df.dropna(subset=["roi_label"]).copy()
     df["roi_label"] = df["roi_label"].astype(str)
 
-    counts = df["roi_label"].value_counts()
-    classes_validas = counts[counts >= CV_SPLITS].index
-    df = df[df["roi_label"].isin(classes_validas)].copy()
+    # counts = df["roi_label"].value_counts()
+    # classes_validas = counts[counts >= CV_SPLITS].index
+    # df = df[df["roi_label"].isin(classes_validas)].copy()
 
     grupos_por_classe = df.groupby("roi_label")["audioSource"].nunique()
-    classes_validas_grupos = grupos_por_classe[grupos_por_classe >= 2].index
+    classes_validas_grupos = grupos_por_classe[grupos_por_classe >= n_splits].index
     df = df[df["roi_label"].isin(classes_validas_grupos)].copy()
 
     df = df.reset_index(drop=True)
@@ -31,19 +31,27 @@ def preparar_dataframe(df):
     return df
 
 
-def gerar_folds(df, output_path):
+def gerar_folds(df, output_path, n_splits):
 
-    df = preparar_dataframe(df)
+    df = preparar_dataframe(df, n_splits)
 
+    print(f"\n===== {n_splits} FOLDS =====")
     print(f"Total amostras após filtro: {len(df)}")
     print(f"Total classes após filtro: {df['roi_label'].nunique()}")
+    
+    print("\nÁudios distintos por espécie:")
+    print(
+        df.groupby("roi_label")["audioSource"]
+        .nunique()
+        .describe()
+    )
     
     X = df.drop(columns=["roi_label", "audioSource"])
     y = df["roi_label"]
     groups = df["audioSource"]
 
     skf = StratifiedGroupKFold(
-        n_splits=CV_SPLITS,
+        n_splits=n_splits,
         shuffle=True,
         random_state=RANDOM_STATE
     )
@@ -72,7 +80,9 @@ def main():
 
     output_path = f"{DATA_VERSION}/{tipo}/stratified_group_kfold_{CV_SPLITS}.pkl"
 
-    gerar_folds(df, output_path)
+    for n_splits in CV_SPLITS:   
+        output_path = (f"{DATA_VERSION}/{tipo}/stratified_group_kfold_{n_splits}.pkl")
+        gerar_folds(df, output_path, n_splits)
 
     print("Folds salvos com sucesso!")
 

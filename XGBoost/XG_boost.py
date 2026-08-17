@@ -1,5 +1,5 @@
 import os
-import numpy as npy
+import numpy as np
 import pickle
 import itertools
 import logging
@@ -12,6 +12,8 @@ from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import f1_score, top_k_accuracy_score
+
+CV_SPLITS = [2, 3, 5, 10]
 
 versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
 
@@ -51,14 +53,14 @@ DATASET_CONFIGS = {
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_xgb_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_xgb_treinoSegmentado",
-        path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
+        path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_xgb_treinoCompleto",
         path_modelos=f"{DATA_VERSION}/modelos_xgb_treinoCompleto",
-        path_folds=f"../folds/{DATA_VERSION}/completo/stratified_group_kfold_10.pkl"
+        path_folds=f"../folds/{DATA_VERSION}/completo"
     )
 }
 
@@ -112,7 +114,7 @@ def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classe
         delayed(treinar)(p) for p in dicts_param
     )
 
-    best_idx = npy.argmax(scores)
+    best_idx = np.argmax(scores)
     best_params = dicts_param[best_idx]
     best_score = scores[best_idx]
 
@@ -141,11 +143,11 @@ def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classe
 #################################################
 
 def calcular_metricas(y_true, y_proba, classes, ka):
-    y_pred = classes[npy.argmax(y_proba, axis=1)]
+    y_pred = classes[np.argmax(y_proba, axis=1)]
     
     f1 = f1_score(y_true, y_pred, average="macro")
 
-    mask = npy.isin(y_true, classes)
+    mask = np.isin(y_true, classes)
     
     if mask.sum() == 0:
         return f1, 0
@@ -164,14 +166,19 @@ def calcular_metricas(y_true, y_proba, classes, ka):
 
 #################################################
 
-def do_cv_xgb(X, y, ka, config, param_grid):
+def do_cv_xgb(X, y, ka, n_splits, config, param_grid):
 
-    preparar_pastas(config.path_matrizes, config.path_modelos)
+    path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
+    path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
+            
+    preparar_pastas(path_matrizes, path_modelos)
 
-    if not os.path.exists(config.path_folds):
+    path_folds = os.path.join(config.path_folds, f"stratified_group_kfold_{n_splits}.pkl")
+        
+    if not os.path.exists(path_folds):
         raise FileNotFoundError("Folds ainda não foram gerados.")
-    
-    folds = carregar_objeto(config.path_folds)
+        
+    folds = carregar_objeto(path_folds)
 
     acuracias, topkScores = [], []
 
@@ -181,7 +188,7 @@ def do_cv_xgb(X, y, ka, config, param_grid):
         idx_treino = fold_dict["train_idx"]
         idx_teste = fold_dict["test_idx"]
 
-        logging.info(f"\n=== Fold {foldId + 1} ===")
+        logging.info(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
 
         X_train = X.iloc[idx_treino]
         y_train = y.iloc[idx_treino]
@@ -209,7 +216,7 @@ def do_cv_xgb(X, y, ka, config, param_grid):
             
             print("Classes fora do modelo:", set(y_true) - set(classes))
 
-            y_pred = classes[npy.argmax(y_proba, axis=1)]
+            y_pred = classes[np.argmax(y_proba, axis=1)]
 
             f1, topk = calcular_metricas(y_true, y_proba, classes, ka)
             
@@ -369,13 +376,32 @@ def main():
         #"n_estimators": [200, 400]
     }
 
-    acuracias, topkAcuracias = do_cv_xgb(X, y, ka, config, param_grid)
+    logging.info(f"Quantidade de amostras: {X.shape}, Quantidade de classes: {y.nunique()}")  
+    resultados = {}
+        
+    for n_splits in CV_SPLITS:
+        logging.info(f"EXPERIMENTO {n_splits}-FOLD")
 
-    print(f"\n-- TESTE {config.nome.upper()} --")
-    print("F1-Score Macro:")
-    print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {npy.mean(acuracias):.2f} ± {npy.std(acuracias):.2f}")
-    print(f"\nTop-{ka} Score:")
-    print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {npy.mean(topkAcuracias):.2f} ± {npy.std(topkAcuracias):.2f}")
+        acuracias, topkAcuracias = do_cv_xgb(X, y, ka, n_splits, config, param_grid)
+        
+        resultados[n_splits] = {
+            "f1": acuracias,
+            "topk": topkAcuracias
+        }
+
+        print(f"\n-- TESTE {config.nome.upper()} --")
+        print("F1-Score Macro:")
+        print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {np.mean(acuracias):.2f} ± {np.std(acuracias):.2f}")
+        print(f"\nTop-{ka} Score:")
+        print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {np.mean(topkAcuracias):.2f} ± {np.std(topkAcuracias):.2f}")
+        
+    for n_splits, resultado in resultados.items():
+        f1s = resultado["f1"]
+        topks = resultado["topk"]
+            
+        print(f"\n{n_splits}-FOLD:")
+        print(f"F1 Macro = {np.mean(f1s):.2f}±{np.std(f1s):.2f}")
+        print(f"Top-{ka} = {np.mean(topks):.2f} ± {np.std(topks):.2f}")
 
 if __name__ == '__main__':
     startTime = datetime.now()

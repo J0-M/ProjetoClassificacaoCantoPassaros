@@ -14,6 +14,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score, pairwise_distances, classification_report
 
+CV_SPLITS = [2, 3, 5, 10]
+
 versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
 
 print("Selecione a versão do dataset:")
@@ -34,6 +36,8 @@ if idx < 0 or idx >= len(versoes_validas):
 
 DATA_VERSION = versoes_validas[idx]
 
+########## CONFIGURAÇÃO LOGGING #################
+
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
 @dataclass
@@ -50,9 +54,11 @@ DATASET_CONFIGS = {
         path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansd_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_kmeansd_treinoSegmentado",
-        path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
+        path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
 }
+
+########## FUNÇÕES UTILITÁRIAS ##################
 
 def salvar_objeto(obj, caminho):
     os.makedirs(os.path.dirname(caminho), exist_ok=True)
@@ -83,6 +89,10 @@ def calcular_metricas(y_true, y_pred, y_proba, classes, k):
 
     return f1, topk
 
+############################################
+# SPLIT
+############################################
+
 def split_train_val(X, y):
     counts = y.value_counts()
     classes_validas = counts[counts >= 2].index
@@ -101,40 +111,36 @@ def split_train_val(X, y):
     
     return train_test_split(X, y, test_size=0.2, stratify=y, shuffle=True, random_state=1)
     
-
-def treinar_kmeansc_worker(classe, X_treino_scaled, y_treino, k_max):
-    X_classe = X_treino_scaled[y_treino == classe]
-    n_amostras = len(X_classe)
-    k = min(n_amostras, k_max)
-    
-    if k == n_amostras:
-        c = X_classe
-    else:
-        kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto")
-        kmeans.fit(X_classe)
-        c = kmeans.cluster_centers_
-        
-    return classe, c
+################################
 
 def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
-    
-    classes = np.unique(y_treino)
-    
-    resultados = Parallel(n_jobs=-1)(
-        delayed(treinar_kmeansc_worker)(classe, X_treino_scaled, y_treino, k_max) 
-        for classe in classes
-    )
     
     centroides = []
     labels = []
     slices = {}
     start = 0
     
-    for classe, c in resultados:
+    classes = np.unique(y_treino)
+    
+    for classe in classes:
+        X_classe = X_treino_scaled[y_treino == classe]
+        n_amostras = len(X_classe)
+        
+        k = min(len(X_classe), k_max)
+        
+        if k == n_amostras:
+            c = X_classe
+        else:
+            kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto")
+            kmeans.fit(X_classe)
+            c = kmeans.cluster_centers_
+
         end = start + len(c)
+
         centroides.append(c)
         labels.extend([classe] * len(c))
         slices[classe] = (start, end)
+
         start = end
     
     return {
@@ -143,8 +149,13 @@ def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
         "slices": slices
     }
 
+############################################
+# FEATURE EXTRACTION
+############################################
+
 def gerar_distancias(X_scaled, centroides):
-    return pairwise_distances(X_scaled, centroides, n_jobs=-1)
+    # return pairwise_distances(X_scaled, centroides, n_jobs=4)
+    return pairwise_distances(X_scaled, centroides)
 
 def extrair_features_por_k(X, modelo_kmeans, k):
     idxs = []
@@ -166,29 +177,33 @@ def selecionar_svm(Cs, gammas, X_tr, X_val, y_tr, y_val):
 
     comb = list(itertools.product(Cs, gammas))
 
-    scores = Parallel(n_jobs=-1)(
+    scores = Parallel(n_jobs=4)(
         delayed(treino)(c, g) for c, g in comb
     )
 
     best = np.argmax(scores)
     C, g = comb[best]
-    best_score = scores[best]
 
     logging.info(f"SVM: C={C}, gamma={g}, F1={scores[best]:.3f}")
 
     svm = SVC(C=C, gamma=g, probability=True, cache_size=1000)
     svm.fit(np.vstack([X_tr, X_val]), np.concatenate([y_tr, y_val]))
 
-    return svm, best_score
+    return svm
 
-def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
+def do_cv_kmeansd(X, y, ka, n_splits, config, k_values, Cs, gammas):
     
-    preparar_pastas(config.path_matrizes, config.path_modelos)
-
-    if not os.path.exists(config.path_folds):
+    path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
+    path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
+                
+    preparar_pastas(path_matrizes, path_modelos)
+    
+    path_folds = os.path.join(config.path_folds, f"stratified_group_kfold_{n_splits}.pkl")
+            
+    if not os.path.exists(path_folds):
         raise FileNotFoundError("Folds ainda não foram gerados.")
-
-    folds = carregar_objeto(config.path_folds)
+            
+    folds = carregar_objeto(path_folds)
 
     f1_scores = []
     topk_scores = []
@@ -199,7 +214,7 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
         idx_treino = fold_dict["train_idx"]
         idx_teste = fold_dict["test_idx"]
 
-        print(f"\n=== Fold {foldId + 1} ===")
+        print(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
 
         X_treino = X.iloc[idx_treino]
         y_treino = y.iloc[idx_treino]
@@ -244,7 +259,6 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
                 scaler_dist = modelo["scaler_dist"]
                 svm = modelo["svm"]
                 scaler_global = modelo["scaler_global"]
-                melhor_k = modelo["k"]
             
             else:
                 logging.info("Treinando modelo...")
@@ -272,10 +286,10 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
                     X_tr_k = extrair_features_por_k(X_tr_dist, modelo_kmeans, k)
                     X_val_k = extrair_features_por_k(X_val_dist, modelo_kmeans, k)
 
-                    svm, f1_val = selecionar_svm(Cs, gammas, X_tr_k, X_val_k, y_train, y_val)
+                    svm = selecionar_svm(Cs, gammas, X_tr_k, X_val_k, y_train, y_val)
                     
-                    #pred = svm.predict(X_val_k)
-                    #f1_val = f1_score(y_val, pred, average="macro")
+                    pred = svm.predict(X_val_k)
+                    f1_val = f1_score(y_val, pred, average="macro")
 
                     if f1_val > melhor_f1:
                         melhor_f1 = f1_val
@@ -295,6 +309,7 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
                 logging.info("Modelo salvo.")
             
             ## Teste
+
             X_teste_scaled = scaler_global.transform(X_teste)
 
             X_teste_dist = gerar_distancias(
@@ -303,7 +318,7 @@ def do_cv_kmeansd(X, y, ka, config, k_values, Cs, gammas):
             )
             X_teste_dist = scaler_dist.transform(X_teste_dist)
             
-            X_teste_k = extrair_features_por_k(X_teste_dist, modelo_kmeans, melhor_k)
+            X_teste_k = extrair_features_por_k(X_teste_dist, modelo_kmeans, k)
 
             y_pred = svm.predict(X_teste_k)
             y_proba = svm.predict_proba(X_teste_k)
@@ -361,21 +376,37 @@ def main():
     y = df["roi_label"]
 
     logging.info(f"Quantidade de amostras: {X.shape}, Quantidade de classes: {y.nunique()}")
+    resultados = {}
+        
+    for n_splits in CV_SPLITS:
+        logging.info(f"EXPERIMENTO {n_splits}-FOLD")
     
-    acuracias, topkAcuracias = do_cv_kmeansd(
-        X, y,
-        ka=ka,
-        config=config,
-        k_values=[10, 20, 50],
-        Cs = [10, 100, 1000],
-        gammas = ['scale', 'auto']
-    )
+        acuracias, topkAcuracias = do_cv_kmeansd(
+            X, y, ka, n_splits,
+            config=config,
+            k_values=[10, 20, 50],
+            Cs = [100, 1000],
+            gammas = ['scale', 2e-2]
+        )
+        
+        resultados[n_splits] = {
+            "f1": acuracias,
+            "topk": topkAcuracias
+        }
     
-    print(f"\n-- TESTE {config.nome.upper()} --")
-    print("F1-Score Macro:")
-    print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {np.mean(acuracias):.2f} ± {np.std(acuracias):.2f}")
-    print(f"\nTop-{ka} Score:")
-    print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {np.mean(topkAcuracias):.2f} ± {np.std(topkAcuracias):.2f}")
+        print(f"\n-- TESTE {config.nome.upper()} --")
+        print("F1-Score Macro:")
+        print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {np.mean(acuracias):.2f} ± {np.std(acuracias):.2f}")
+        print(f"\nTop-{ka} Score:")
+        print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {np.mean(topkAcuracias):.2f} ± {np.std(topkAcuracias):.2f}")
+        
+    for n_splits, resultado in resultados.items():
+        f1s = resultado["f1"]
+        topks = resultado["topk"]
+            
+        print(f"\n{n_splits}-FOLD:")
+        print(f"F1 Macro = {np.mean(f1s):.2f}±{np.std(f1s):.2f}")
+        print(f"Top-{ka} = {np.mean(topks):.2f} ± {np.std(topks):.2f}")
 
 if __name__ == '__main__':
     startTime = datetime.now()
