@@ -222,15 +222,8 @@ def do_cv_kmeansd(X, y, ka, n_splits, config, k_values, Cs, gammas):
         X_teste = X.iloc[idx_teste]
         y_teste = y.iloc[idx_teste]
         
-        modelo_filename = os.path.join(
-            config.path_modelos,
-            f"kmeansd_model_fold_{foldId + 1}.pkl"
-        )
-
-        matriz_filename = os.path.join(
-            config.path_matrizes,
-            f"matriz_{foldId + 1}.pkl"
-        )
+        modelo_filename = os.path.join(path_modelos,f"kmeansd_model_fold_{foldId + 1}.pkl")
+        matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
 
         if os.path.exists(matriz_filename):
             logging.info("Carregando matriz salva...")

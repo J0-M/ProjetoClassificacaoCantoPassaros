@@ -196,13 +196,8 @@ def do_cv_xgb(X, y, ka, n_splits, config, param_grid):
         X_test = X.iloc[idx_teste]
         y_test = y.iloc[idx_teste]
 
-        modelo_filename = os.path.join(
-            config.path_modelos, f"xgb_model_fold_{foldId + 1}.pkl"
-        )
-
-        matriz_filename = os.path.join(
-            config.path_matrizes, f"matriz_{foldId + 1}.pkl"
-        )
+        modelo_filename = os.path.join(path_modelos, f"xgb_model_fold_{foldId + 1}.pkl")
+        matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
 
         if os.path.exists(matriz_filename):
 
