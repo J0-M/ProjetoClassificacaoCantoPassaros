@@ -328,14 +328,21 @@ def main():
     resultados = {}
     
     for n_splits in CV_SPLITS:
+        
         logging.info(f"EXPERIMENTO {n_splits}-FOLD")
         
+        inicio_experimento = datetime.now()
+        
         acuracias, topKAcuracias = treinar_knn_com_validacao_cruzada(X, y, ka, n_splits, config)
+        
+        final_experimento = datetime.now()
         
         resultados[n_splits] = {
             "f1": acuracias,
             "topk": topKAcuracias
         }
+        
+        logging.info(f"Tempo de Experimento - {n_splits} FOLD = {final_experimento - inicio_experimento}")
     
         #print(f"\n-- TESTE {config.nome.upper()} ({n_splits}-FOLD)--")
         #print("F1-Score Macro:")

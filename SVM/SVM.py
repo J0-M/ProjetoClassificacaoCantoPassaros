@@ -328,6 +328,8 @@ def main():
     
     for n_splits in CV_SPLITS:
         logging.info(f"EXPERIMENTO {n_splits}-FOLD")
+        
+        inicio_experimento = datetime.now()
     
         acuracias, topkAcuracias = do_cv_svm(
             X, y, ka, n_splits, config, 
@@ -335,17 +337,21 @@ def main():
             Cs=[1, 10, 100, 1000], 
             gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4]
         )
+        
+        final_experimento = datetime.now()
             
         resultados[n_splits] = {
             "f1": acuracias,
             "topk": topkAcuracias
         }
+        
+        logging.info(f"Tempo de Experimento - {n_splits} FOLD = {final_experimento - inicio_experimento}")
 
-        print(f"\n-- TESTE {config.nome.upper()} ({n_splits}-FOLD)--")
-        print("F1-Score Macro:")
-        print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {np.mean(acuracias):.2f} ± {np.std(acuracias):.2f}")
-        print(f"\nTop-{ka} Score:")
-        print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {np.mean(topkAcuracias):.2f} ± {np.std(topkAcuracias):.2f}")
+        #print(f"\n-- TESTE {config.nome.upper()} ({n_splits}-FOLD)--")
+        #print("F1-Score Macro:")
+        #print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {np.mean(acuracias):.2f} ± {np.std(acuracias):.2f}")
+        #print(f"\nTop-{ka} Score:")
+        #print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {np.mean(topkAcuracias):.2f} ± {np.std(topkAcuracias):.2f}")
             
     for n_splits, resultado in resultados.items():
         f1s = resultado["f1"]
