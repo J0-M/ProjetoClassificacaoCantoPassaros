@@ -227,10 +227,15 @@ def do_cv_kmeansc_svm(X, y, ka, n_splits, config, k_values, Cs, gammas):
             classes = matriz["classes"]
 
             y_pred = classes[np.argmax(y_proba, axis=1)]
+            
+            print(f"y_teste atual: {len(y_teste)}")
+            print(f"y_true salvo: {len(y_true)}")
+            print(f"y_proba salvo: {len(y_proba)}")
+            print(f"y_pred: {len(y_pred)}")
 
             f1, topk = calcular_metricas(y_true, y_pred, y_proba, classes, ka)
             
-            f1_report = classification_report(y_teste, y_pred)
+            f1_report = classification_report(y_true, y_pred)
             print(f"\n=== Classification Report Fold {foldId + 1} ===")
             print(f1_report)
             
