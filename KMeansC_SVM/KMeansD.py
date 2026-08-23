@@ -250,8 +250,9 @@ def do_cv_kmeansd(X, y, ka, n_splits, config, k_values, Cs, gammas):
 
                 modelo_kmeans = modelo["kmeans"]
                 scaler_dist = modelo["scaler_dist"]
-                svm = modelo["svm"]
                 scaler_global = modelo["scaler_global"]
+                svm = modelo["svm"]
+                k = modelo["k"]
             
             else:
                 logging.info("Treinando modelo...")
