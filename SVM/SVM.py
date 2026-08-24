@@ -115,25 +115,6 @@ def selecionar_melhor_svm(Cs, gammas, X_treino : np.ndarray, X_val : np.ndarray,
     return svm_final, melhor_comb, melhor_val
 
 
-def exibir_resultados(svm, X_test_scaled, y_test, ka):
-    y_pred = svm.predict(X_test_scaled)
-    y_proba = svm.predict_proba(X_test_scaled)
-
-    f1 = f1_score(y_test, y_pred, average="macro")
-    mask = y_test.isin(svm.classes_)
-    y_test_filtrado = y_test[mask]
-    y_proba_filtrado = y_proba[mask.values]
-    
-    classes_presentes = np.intersect1d(svm.classes_, np.unique(y_test_filtrado))
-    idxs = [np.where(svm.classes_ == c)[0][0] for c in classes_presentes]
-    y_proba_filtrado = y_proba_filtrado[:, idxs]
-    
-    topk_acc = top_k_accuracy_score(y_test_filtrado, y_proba_filtrado, k=ka, labels=classes_presentes)
-
-    logging.info(f"F1-score do SVM: {f1:.2f}")
-    logging.info(f"Top-{ka} Accuracy: {topk_acc:.2f}")
-
-
 def do_cv_svm(X, y, ka, n_splits, config: DatasetConfig, Cs, gammas):
 
     path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
@@ -191,23 +172,8 @@ def do_cv_svm(X, y, ka, n_splits, config: DatasetConfig, Cs, gammas):
 
             else:
                 logging.info("Treinando modelo...")
-
-                print(y_treino.value_counts().min())
                 
-                counts = y_treino.value_counts()
-                classes_validas = counts[counts >= 2].index
-
-                logging.info(f"Espécies antes do filtro: {len(counts)}")
-                logging.info(f"Amostras antes do filtro: {len(y_treino)}")
-
-                mask = y_treino.isin(classes_validas)
-                X_treino = X_treino[mask]
-                y_treino = y_treino[mask]
-                
-                logging.info(f"Espécies depois do filtro: {y_treino.nunique()}")
-                logging.info(f"Amostras depois do filtro: {len(y_treino)}")
-                
-                logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
+                logging.info(f"Quantidade de Espécies: {y_treino.nunique()}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_treino, 
@@ -253,29 +219,12 @@ def do_cv_svm(X, y, ka, n_splits, config: DatasetConfig, Cs, gammas):
 
         f1 = f1_score(y_teste, y_pred, average="macro")
 
-        mask = np.isin(y_teste, classes)
-        y_teste_filtrado = y_teste[mask]
-        y_proba_filtrado = y_proba[mask]
-
-        if len(y_teste_filtrado) == 0:
-            topk = 0
-        else:
-            classes_presentes = np.intersect1d(
-                classes,
-                np.unique(y_teste_filtrado)
-            )
-
-            idxs = [np.where(classes == c)[0][0]
-                    for c in classes_presentes]
-
-            y_proba_filtrado = y_proba_filtrado[:, idxs]
-
-            topk = top_k_accuracy_score(
-                y_teste_filtrado,
-                y_proba_filtrado,
-                k=ka,
-                labels=classes_presentes
-            )
+        topk = top_k_accuracy_score(
+            y_teste,
+            y_proba,
+            k=ka,
+            labels=classes
+        )
 
         logging.info(f"F1={f1:.3f} | Top-{ka}={topk:.3f}")
 
@@ -311,7 +260,7 @@ def main():
     df = carregar_objeto(config.path_dataframe)
     logging.info("Dataframe carregado com sucesso!")
     
-    df = df.dropna(subset=["roi_label"])
+    #df = df.dropna(subset=["roi_label"])
     df["roi_label"] = df["roi_label"].astype(str)
 
     X = df.drop(columns=["roi_label", "audioSource"])

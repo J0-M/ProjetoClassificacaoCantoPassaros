@@ -77,13 +77,9 @@ def preparar_pastas(*pastas):
 def calcular_metricas(y_true, y_pred, y_proba, classes, k):
     f1 = f1_score(y_true, y_pred, average="macro")
 
-    mask = np.isin(y_true, classes)
-    if not np.any(mask):
-        return f1, 0
-
     topk = top_k_accuracy_score(
-        y_true[mask],
-        y_proba[mask],
+        y_true,
+        y_proba,
         k=k,
         labels=classes
     )
@@ -95,20 +91,7 @@ def calcular_metricas(y_true, y_pred, y_proba, classes, k):
 ############################################
 
 def split_train_val(X, y):
-    counts = y.value_counts()
-    classes_validas = counts[counts >= 2].index
-
-    logging.info(f"Espécies antes do filtro: {len(counts)}")
-    logging.info(f"Amostras antes do filtro: {len(y)}")
-
-    mask = y.isin(classes_validas)
-    X = X[mask]
-    y = y[mask]
-                
-    logging.info(f"Espécies depois do filtro: {y.nunique()}")
-    logging.info(f"Amostras depois do filtro: {len(y)}")
-                
-    logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
+    logging.info(f"Quantidade de Espécies: {y.nunique()}")
     
     return train_test_split(X, y, test_size=0.2, stratify=y, shuffle=True, random_state=1)
     

@@ -180,20 +180,12 @@ def prever_kmeansc(modelo, X_teste, y_teste, ka):
     
     classes_treino = np.unique(labels_centroides)
 
-    mask = np.isin(y_teste, classes_treino)
-
-    y_teste_filtrado = y_teste[mask]
-    y_scores_filtrado = y_scores_classes[mask]
-
-    if len(y_teste_filtrado) == 0:
-        topk = 0
-    else:
-        topk = top_k_accuracy_score(
-            y_teste_filtrado,
-            y_scores_filtrado,
-            k=ka,
-            labels=classes_treino
-        )
+    topk = top_k_accuracy_score(
+        y_teste,
+        y_scores_classes,
+        k=ka,
+        labels=classes_treino
+    )
     
     return f1, topk, y_pred, y_scores_classes
 
@@ -249,18 +241,13 @@ def do_cv_kmeansc(X, y, ka, config: DatasetConfig, k_values):
 
             # métricas
             f1 = f1_score(y_true, y_pred, average="macro")
-
-            mask = np.isin(y_true, classes)
-
-            if mask.sum() == 0:
-                topk = 0
-            else:
-                topk = top_k_accuracy_score(
-                    y_true[mask],
-                    y_scores[mask],
-                    k=ka,
-                    labels=classes
-                )
+            
+            topk = top_k_accuracy_score(
+                y_true,
+                y_scores,
+                k=ka,
+                labels=classes
+            )
 
         else:
 
@@ -271,22 +258,7 @@ def do_cv_kmeansc(X, y, ka, config: DatasetConfig, k_values):
             else:
                 logging.info(f"Treinando modelo {foldId + 1}...")
                 
-                print(y_treino.value_counts().min())
-                
-                counts = y_treino.value_counts()
-                classes_validas = counts[counts >= 2].index
-
-                logging.info(f"Espécies antes do filtro: {len(counts)}")
-                logging.info(f"Amostras antes do filtro: {len(y_treino)}")
-
-                mask = y_treino.isin(classes_validas)
-                X_treino = X_treino[mask]
-                y_treino = y_treino[mask]
-                
-                logging.info(f"Espécies depois do filtro: {y_treino.nunique()}")
-                logging.info(f"Amostras depois do filtro: {len(y_treino)}")
-                
-                logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
+                logging.info(f"Quantidade de Espécies: {y_treino.nunique()}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_treino,

@@ -111,12 +111,10 @@ def exibir_resultados_matriz(y_true, y_proba, classes, ka):
     y_pred = classes[np.argmax(y_proba, axis=1)]
     
     f1 = f1_score(y_true, y_pred, average="macro")
-
-    mask = np.isin(y_true, classes)
     
     topk = top_k_accuracy_score(
-        y_true[mask],
-        y_proba[mask],
+        y_true,
+        y_proba,
         k=ka,
         labels=classes
     )
@@ -172,17 +170,12 @@ def treinar_knn_com_validacao_cruzada(X, y, ka, n_splits, config: DatasetConfig)
 
             f1 = f1_score(y_true, y_pred, average="macro")
 
-            mask = np.isin(y_true, classes)
-
-            if mask.sum() == 0:
-                topk = 0
-            else:
-                topk = top_k_accuracy_score(
-                    y_true[mask],
-                    y_proba[mask],
-                    k=ka,
-                    labels=classes
-                )
+            topk = top_k_accuracy_score(
+                y_true,
+                y_proba,
+                k=ka,
+                labels=classes
+            )
             
             exibir_resultados_matriz(y_true, y_proba, classes, ka)
 
@@ -198,20 +191,7 @@ def treinar_knn_com_validacao_cruzada(X, y, ka, n_splits, config: DatasetConfig)
             else:
                 logging.info("Treinando modelo...")
                 
-                counts = y_treino.value_counts()
-                classes_validas = counts[counts >= 2].index
-
-                logging.info(f"Espécies antes do filtro: {len(counts)}")
-                logging.info(f"Amostras antes do filtro: {len(y_treino)}")
-
-                mask = y_treino.isin(classes_validas)
-                X_treino = X_treino[mask]
-                y_treino = y_treino[mask]
-                
-                logging.info(f"Espécies depois do filtro: {y_treino.nunique()}")
-                logging.info(f"Amostras depois do filtro: {len(y_treino)}")
-                
-                logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
+                logging.info(f"Quantidade de Espécies: {y_treino.nunique()}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_treino,
@@ -245,29 +225,12 @@ def treinar_knn_com_validacao_cruzada(X, y, ka, n_splits, config: DatasetConfig)
 
             f1 = f1_score(y_teste, y_pred, average="macro")
 
-            mask = y_teste.isin(knn.classes_)
-            y_teste_filtrado = y_teste[mask]
-            y_proba_filtrado = y_proba[mask.values]
-
-            classes_presentes = np.intersect1d(
-                knn.classes_,
-                np.unique(y_teste_filtrado)
+            topk = top_k_accuracy_score(
+                y_teste,
+                y_proba,
+                k=ka,
+                labels=knn.classes_
             )
-
-            idxs = [np.where(knn.classes_ == c)[0][0]
-                    for c in classes_presentes]
-
-            y_proba_filtrado = y_proba_filtrado[:, idxs]
-
-            if len(y_teste_filtrado) == 0:
-                topk = 0
-            else:
-                topk = top_k_accuracy_score(
-                    y_teste_filtrado,
-                    y_proba_filtrado,
-                    k=ka,
-                    labels=classes_presentes
-                )
 
             salvar_objeto({
                 "fold": foldId,
@@ -314,7 +277,7 @@ def main():
     
     df = carregar_objeto(config.path_dataframe)
     
-    df = df.dropna(subset=["roi_label"])
+    #df = df.dropna(subset=["roi_label"])
     df["roi_label"] = df["roi_label"].astype(str)
     
     logging.info("Dataframe carregado com sucesso!")

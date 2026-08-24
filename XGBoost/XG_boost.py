@@ -146,15 +146,10 @@ def calcular_metricas(y_true, y_proba, classes, ka):
     y_pred = classes[np.argmax(y_proba, axis=1)]
     
     f1 = f1_score(y_true, y_pred, average="macro")
-
-    mask = np.isin(y_true, classes)
-    
-    if mask.sum() == 0:
-        return f1, 0
     
     topk = top_k_accuracy_score(
-        y_true[mask],
-        y_proba[mask],
+        y_true,
+        y_proba,
         k=ka,
         labels=classes
     )
@@ -229,23 +224,8 @@ def do_cv_xgb(X, y, ka, n_splits, config, param_grid):
             else:
 
                 logging.info("Treinando modelo...")
-
-                print(y_train.value_counts().min())
                 
-                counts = y_train.value_counts()
-                classes_validas = counts[counts >= 2].index
-                
-                logging.info(f"Espécies antes do filtro: {len(counts)}")
-                logging.info(f"Amostras antes do filtro: {len(y_train)}")
-
-                mask = y_train.isin(classes_validas)
-                X_train = X_train[mask]
-                y_train = y_train[mask]
-                
-                logging.info(f"Espécies depois do filtro: {y_train.nunique()}")
-                logging.info(f"Amostras depois do filtro: {len(y_train)}")
-                
-                logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
+                logging.info(f"Quantidade de Espécies: {y_train.nunique()}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_train,
@@ -294,23 +274,12 @@ def do_cv_xgb(X, y, ka, n_splits, config, param_grid):
 
             logging.info("Calculando matriz...")
 
-            # filtrar apenas classes vistas
-            mask_test = y_test.isin(le.classes_)
-            X_test_filtrado = X_test[mask_test]
-            y_test_filtrado = y_test[mask_test]
-
-            y_test_encoded = le.transform(y_test_filtrado)
-            X_test_filtrado = ss.transform(X_test_filtrado)
-
-            y_pred = modelo.predict(X_test_filtrado)
-            y_proba = modelo.predict_proba(X_test_filtrado)
-
             classes = modelo.classes_
 
-            f1 = f1_score(y_test_encoded, y_pred, average="macro")
+            f1 = f1_score(y_test, y_pred, average="macro")
 
             topk = top_k_accuracy_score(
-                y_test_encoded,
+                y_test,
                 y_proba,
                 k=ka,
                 labels=classes
@@ -319,7 +288,7 @@ def do_cv_xgb(X, y, ka, n_splits, config, param_grid):
             salvar_objeto(
                 {
                     "fold": foldId,
-                    "y_true": y_test_encoded,
+                    "y_true": y_test,
                     "y_proba": y_proba,
                     "classes": classes,
                 },
