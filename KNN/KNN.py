@@ -11,7 +11,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
-CV_SPLITS = [2, 3, 5, 10]
+CV_SPLITS = [5, 10]
 
 versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
 
@@ -40,7 +40,6 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 @dataclass
 class DatasetConfig:
     nome: str
-    path_dataframe: str
     path_matrizes: str
     path_modelos: str
     path_folds: str # somente leitura
@@ -49,14 +48,12 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_knn_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_knn_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_knn_treinoCompleto",
         path_modelos=f"{DATA_VERSION}/modelos_knn_treinoCompleto",
         path_folds=f"../folds/{DATA_VERSION}/completo"
@@ -122,7 +119,7 @@ def exibir_resultados_matriz(y_true, y_proba, classes, ka):
     logging.info(f"F1-score do KNN: {f1:.2f}")
     logging.info(f"Top-{ka} Accuracy: {topk:.2f}")
     
-def treinar_knn_com_validacao_cruzada(X, y, ka, n_splits, config: DatasetConfig):
+def treinar_knn_com_validacao_cruzada(ka, n_splits, config: DatasetConfig):
     
     path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
     path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
@@ -141,16 +138,22 @@ def treinar_knn_com_validacao_cruzada(X, y, ka, n_splits, config: DatasetConfig)
     for fold_dict in folds:
 
         foldId = fold_dict["fold"]
-        idx_treino = fold_dict["train_idx"]
-        idx_teste = fold_dict["test_idx"]
+        
+        X_treino = fold_dict["X_train"]
+        y_treino = fold_dict["y_train"]
+
+        X_teste = fold_dict["X_test"]
+        y_teste = fold_dict["y_test"]
+        
+        logging.info(f"Amostras treino: {len(X_treino)}")
+        logging.info(f"Amostras teste: {len(X_teste)}")
+        logging.info(f"Espécies treino: {y_treino.nunique()}")
+        logging.info(f"Espécies teste: {y_teste.nunique()}")
 
         logging.info(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
-
-        X_treino = X.iloc[idx_treino]
-        y_treino = y.iloc[idx_treino]
-
-        X_teste = X.iloc[idx_teste]
-        y_teste = y.iloc[idx_teste]
+        
+        logging.info(f"Amostras treino: {len(X_treino)}")
+        logging.info(f"Amostras teste: {len(X_teste)}")
 
         matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
         modelo_filename = os.path.join(path_modelos, f"KNN_model_fold_{foldId + 1}.pkl")
@@ -190,8 +193,6 @@ def treinar_knn_com_validacao_cruzada(X, y, ka, n_splits, config: DatasetConfig)
 
             else:
                 logging.info("Treinando modelo...")
-                
-                logging.info(f"Quantidade de Espécies: {y_treino.nunique()}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_treino,
@@ -271,23 +272,6 @@ def main():
 
     config = DATASET_CONFIGS[tipo]
     
-    if not os.path.exists(config.path_dataframe):
-        logging.error("Dataframe não encontrado!")
-        return
-    
-    df = carregar_objeto(config.path_dataframe)
-    
-    #df = df.dropna(subset=["roi_label"])
-    df["roi_label"] = df["roi_label"].astype(str)
-    
-    logging.info("Dataframe carregado com sucesso!")
-
-    X = df.drop(columns=["roi_label", "audioSource"])
-    y = df["roi_label"]
-
-    logging.info(f"Quantidade de amostras: {X.shape}")
-    logging.info(f"Quantidade de espécies: {y.nunique()}")
-    
     resultados = {}
     
     for n_splits in CV_SPLITS:
@@ -296,7 +280,7 @@ def main():
         
         inicio_experimento = datetime.now()
         
-        acuracias, topKAcuracias = treinar_knn_com_validacao_cruzada(X, y, ka, n_splits, config)
+        acuracias, topKAcuracias = treinar_knn_com_validacao_cruzada(ka, n_splits, config)
         
         final_experimento = datetime.now()
         

@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
-CV_SPLITS = [2, 3, 5, 10]
+CV_SPLITS = [5, 10]
 
 versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
 
@@ -41,7 +41,6 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 @dataclass
 class DatasetConfig:
     nome: str
-    path_dataframe: str
     path_matrizes: str
     path_modelos: str
     path_folds: str
@@ -49,14 +48,12 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_svm_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_svm_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_svm_treinoCompleto",
         path_modelos=f"{DATA_VERSION}/modelos_svm_treinoCompleto",
         path_folds=f"../folds/{DATA_VERSION}/completo"
@@ -115,7 +112,7 @@ def selecionar_melhor_svm(Cs, gammas, X_treino : np.ndarray, X_val : np.ndarray,
     return svm_final, melhor_comb, melhor_val
 
 
-def do_cv_svm(X, y, ka, n_splits, config: DatasetConfig, Cs, gammas):
+def do_cv_svm(ka, n_splits, config: DatasetConfig, Cs, gammas):
 
     path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
     path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
@@ -134,16 +131,19 @@ def do_cv_svm(X, y, ka, n_splits, config: DatasetConfig, Cs, gammas):
     for fold_dict in folds:
         
         foldId = fold_dict["fold"]
-        idx_treino = fold_dict["train_idx"]
-        idx_teste = fold_dict["test_idx"]
-
+                
+        X_treino = fold_dict["X_train"]
+        y_treino = fold_dict["y_train"]
+        
+        X_teste = fold_dict["X_test"]
+        y_teste = fold_dict["y_test"]
+        
+        logging.info(f"Amostras treino: {len(X_treino)}")
+        logging.info(f"Amostras teste: {len(X_teste)}")
+        logging.info(f"Espécies treino: {y_treino.nunique()}")
+        logging.info(f"Espécies teste: {y_teste.nunique()}")
+        
         logging.info(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
-
-        X_treino = X.iloc[idx_treino]
-        y_treino = y.iloc[idx_treino]
-
-        X_teste = X.iloc[idx_teste]
-        y_teste = y.iloc[idx_teste]
 
         matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
         modelo_filename = os.path.join(path_modelos, f"svm_model_fold_{foldId + 1}.pkl")
@@ -172,8 +172,6 @@ def do_cv_svm(X, y, ka, n_splits, config: DatasetConfig, Cs, gammas):
 
             else:
                 logging.info("Treinando modelo...")
-                
-                logging.info(f"Quantidade de Espécies: {y_treino.nunique()}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_treino, 
@@ -234,7 +232,6 @@ def do_cv_svm(X, y, ka, n_splits, config: DatasetConfig, Cs, gammas):
     return f1_scores, topkScores
 
 def main():
-    
     ka = int(input("Hiperparâmetro K (Top-K): "))
     
     print("\n##########################\n")
@@ -253,21 +250,6 @@ def main():
 
     config = DATASET_CONFIGS[tipo]
     
-    if not os.path.exists(config.path_dataframe):
-        logging.error("Dataframe não encontrado!")
-        return
-
-    df = carregar_objeto(config.path_dataframe)
-    logging.info("Dataframe carregado com sucesso!")
-    
-    #df = df.dropna(subset=["roi_label"])
-    df["roi_label"] = df["roi_label"].astype(str)
-
-    X = df.drop(columns=["roi_label", "audioSource"])
-    y = df["roi_label"]
-
-    logging.info(f"Quantidade de amostras: {X.shape}, Quantidade de classes: {y.nunique()}")
-    
     resultados = {}
     
     for n_splits in CV_SPLITS:
@@ -276,7 +258,7 @@ def main():
         inicio_experimento = datetime.now()
     
         acuracias, topkAcuracias = do_cv_svm(
-            X, y, ka, n_splits, config, 
+            ka, n_splits, config, 
             # kernel = ['rbf', 'poly', 'sigmoid'],
             Cs=[1, 10, 100, 1000], 
             gammas=['scale', 'auto', 2e-2, 2e-3, 2e-4]

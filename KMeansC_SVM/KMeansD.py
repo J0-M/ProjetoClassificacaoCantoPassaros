@@ -14,7 +14,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score, pairwise_distances, classification_report
 
-CV_SPLITS = [2, 3, 5, 10]
+CV_SPLITS = [5, 10]
 
 versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
 
@@ -43,7 +43,6 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 @dataclass
 class DatasetConfig:
     nome: str
-    path_dataframe: str
     path_matrizes: str
     path_modelos: str
     path_folds: str
@@ -51,7 +50,6 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansd_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_kmeansd_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado"
@@ -89,9 +87,7 @@ def calcular_metricas(y_true, y_pred, y_proba, classes, k):
 # SPLIT
 ############################################
 
-def split_train_val(X, y):
-    logging.info(f"Quantidade de Espécies: {y.nunique()}")
-    
+def split_train_val(X, y): 
     return train_test_split(X, y, test_size=0.2, stratify=y, shuffle=True, random_state=1)
     
 ################################
@@ -174,7 +170,7 @@ def selecionar_svm(Cs, gammas, X_tr, X_val, y_tr, y_val):
 
     return svm
 
-def do_cv_kmeansd(X, y, ka, n_splits, config, k_values, Cs, gammas):
+def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
     
     path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
     path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
@@ -194,16 +190,19 @@ def do_cv_kmeansd(X, y, ka, n_splits, config, k_values, Cs, gammas):
     for fold_dict in folds:
 
         foldId = fold_dict["fold"]
-        idx_treino = fold_dict["train_idx"]
-        idx_teste = fold_dict["test_idx"]
+                        
+        X_treino = fold_dict["X_train"]
+        y_treino = fold_dict["y_train"]
+
+        X_teste = fold_dict["X_test"]
+        y_teste = fold_dict["y_test"]
+        
+        logging.info(f"Amostras treino: {len(X_treino)}")
+        logging.info(f"Amostras teste: {len(X_teste)}")
+        logging.info(f"Espécies treino: {y_treino.nunique()}")
+        logging.info(f"Espécies teste: {y_teste.nunique()}")
 
         print(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
-
-        X_treino = X.iloc[idx_treino]
-        y_treino = y.iloc[idx_treino]
-
-        X_teste = X.iloc[idx_teste]
-        y_teste = y.iloc[idx_teste]
         
         modelo_filename = os.path.join(path_modelos,f"kmeansd_model_fold_{foldId + 1}.pkl")
         matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
@@ -339,20 +338,6 @@ def main():
 
     config = DATASET_CONFIGS[tipo]
     
-    if not os.path.exists(config.path_dataframe):
-        logging.error("Dataframe não encontrado!")
-        return
-
-    df = carregar_objeto(config.path_dataframe)
-    logging.info("Dataframe carregado com sucesso!")
-    
-    df = df.dropna(subset=["roi_label"])
-    df["roi_label"] = df["roi_label"].astype(str)
-
-    X = df.drop(columns=["roi_label", "audioSource"])
-    y = df["roi_label"]
-
-    logging.info(f"Quantidade de amostras: {X.shape}, Quantidade de classes: {y.nunique()}")
     resultados = {}
         
     for n_splits in CV_SPLITS:
@@ -361,7 +346,7 @@ def main():
         inicio_experimento = datetime.now()
         
         acuracias, topkAcuracias = do_cv_kmeansd(
-            X, y, ka, n_splits,
+            ka, n_splits,
             config=config,
             k_values=[10, 20, 50],
             Cs = [100, 1000],

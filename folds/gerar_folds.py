@@ -61,8 +61,10 @@ def gerar_folds(df, output_path, n_splits):
     for fold_id, (train_idx, test_idx) in enumerate(skf.split(X, y, groups)):
         folds.append({
             "fold": fold_id,
-            "train_idx": train_idx,
-            "test_idx": test_idx
+            "X_train": X.iloc[train_idx].copy(),
+            "y_train": y.iloc[train_idx].copy(),
+            "X_test": X.iloc[test_idx].copy(),
+            "y_test": y.iloc[test_idx].copy()
         })
 
     salvar_objeto(folds, output_path)

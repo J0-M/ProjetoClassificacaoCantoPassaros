@@ -56,7 +56,7 @@ def processar_split(df_original, n_splits):
         n_splits
     )
 
-    print(f"Amostras após filtro: {len(df)}")
+    print(f"Amostras: {len(df)}")
     print(f"Espécies: {df['roi_label'].nunique()}")
 
     logger.info("=" * 80)
@@ -86,8 +86,8 @@ def processar_split(df_original, n_splits):
 
         fold_id = fold_info["fold"]
 
-        train_idx = fold_info["train_idx"]
-        test_idx = fold_info["test_idx"]
+        train_idx = fold_info["X_train"].index
+        test_idx = fold_info["X_test"].index
 
         logger.info("")
         logger.info("=" * 80)
@@ -99,8 +99,8 @@ def processar_split(df_original, n_splits):
         logger.info(f"Treino: {len(train_idx)} amostras")
         logger.info(f"Teste: {len(test_idx)} amostras")
 
-        train_audios = set(df.iloc[train_idx]["audioSource"])
-        test_audios = set(df.iloc[test_idx]["audioSource"])
+        train_audios = set(df.loc[train_idx]["audioSource"])
+        test_audios = set(df.loc[test_idx]["audioSource"])
         intersecao = (train_audios & test_audios)
 
         if intersecao:
@@ -115,7 +115,7 @@ def processar_split(df_original, n_splits):
 
         for idx in train_idx:
 
-            row = df.iloc[idx]
+            row = df.loc[idx]
 
             especie = row["roi_label"]
             audio = row["audioSource"]
@@ -136,7 +136,7 @@ def processar_split(df_original, n_splits):
 
         for idx in test_idx:
 
-            row = df.iloc[idx]
+            row = df.loc[idx]
 
             especie = row["roi_label"]
             audio = row["audioSource"]

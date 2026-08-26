@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
-CV_SPLITS = [2, 3, 5, 10]
+CV_SPLITS = [5, 10]
 
 versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
 
@@ -42,7 +42,6 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 @dataclass
 class DatasetConfig:
     nome: str
-    path_dataframe: str
     path_matrizes: str
     path_modelos: str
     path_folds: str
@@ -50,14 +49,12 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_xgb_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_xgb_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_xgb_treinoCompleto",
         path_modelos=f"{DATA_VERSION}/modelos_xgb_treinoCompleto",
         path_folds=f"../folds/{DATA_VERSION}/completo"
@@ -161,7 +158,7 @@ def calcular_metricas(y_true, y_proba, classes, ka):
 
 #################################################
 
-def do_cv_xgb(X, y, ka, n_splits, config, param_grid):
+def do_cv_xgb(ka, n_splits, config, param_grid):
 
     path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
     path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
@@ -180,16 +177,19 @@ def do_cv_xgb(X, y, ka, n_splits, config, param_grid):
     for fold_dict in folds:
 
         foldId = fold_dict["fold"]
-        idx_treino = fold_dict["train_idx"]
-        idx_teste = fold_dict["test_idx"]
+                        
+        X_train = fold_dict["X_train"]
+        y_train = fold_dict["y_train"]
+        
+        X_test = fold_dict["X_test"]
+        y_test = fold_dict["y_test"]
+        
+        logging.info(f"Amostras treino: {len(X_train)}")
+        logging.info(f"Amostras teste: {len(X_test)}")
+        logging.info(f"Espécies treino: {y_train.nunique()}")
+        logging.info(f"Espécies teste: {y_test.nunique()}")
 
         logging.info(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
-
-        X_train = X.iloc[idx_treino]
-        y_train = y.iloc[idx_treino]
-
-        X_test = X.iloc[idx_teste]
-        y_test = y.iloc[idx_teste]
 
         modelo_filename = os.path.join(path_modelos, f"xgb_model_fold_{foldId + 1}.pkl")
         matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
@@ -224,8 +224,6 @@ def do_cv_xgb(X, y, ka, n_splits, config, param_grid):
             else:
 
                 logging.info("Treinando modelo...")
-                
-                logging.info(f"Quantidade de Espécies: {y_train.nunique()}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_train,
@@ -274,12 +272,18 @@ def do_cv_xgb(X, y, ka, n_splits, config, param_grid):
 
             logging.info("Calculando matriz...")
 
+            X_test_scaled = ss.transform(X_test)
+            y_proba = modelo.predict_proba(X_test_scaled)
+            
             classes = modelo.classes_
+            
+            y_test_encoded = le.transform(y_test)
+            y_pred = classes[np.argmax(y_proba, axis=1)]
 
-            f1 = f1_score(y_test, y_pred, average="macro")
+            f1 = f1_score(y_test_encoded, y_pred, average="macro")
 
             topk = top_k_accuracy_score(
-                y_test,
+                y_test_encoded,
                 y_proba,
                 k=ka,
                 labels=classes
@@ -288,7 +292,7 @@ def do_cv_xgb(X, y, ka, n_splits, config, param_grid):
             salvar_objeto(
                 {
                     "fold": foldId,
-                    "y_true": y_test,
+                    "y_true": y_test_encoded,
                     "y_proba": y_proba,
                     "classes": classes,
                 },
@@ -327,11 +331,6 @@ def main():
 
     config = DATASET_CONFIGS[tipo]
 
-    df = carregar_objeto(config.path_dataframe)
-
-    X = df.drop(columns=["roi_label", "audioSource"])
-    y = df["roi_label"]
-
     param_grid = {
         "max_depth": [4, 6],
         "learning_rate": [0.05, 0.1],
@@ -339,8 +338,7 @@ def main():
         "colsample_bytree": [0.7, 1.0]
         #"n_estimators": [200, 400]
     }
-
-    logging.info(f"Quantidade de amostras: {X.shape}, Quantidade de classes: {y.nunique()}")  
+      
     resultados = {}
         
     for n_splits in CV_SPLITS:
@@ -348,7 +346,7 @@ def main():
         
         inicio_experimento = datetime.now()
 
-        acuracias, topkAcuracias = do_cv_xgb(X, y, ka, n_splits, config, param_grid)
+        acuracias, topkAcuracias = do_cv_xgb(ka, n_splits, config, param_grid)
         
         final_experimento = datetime.now()
         
