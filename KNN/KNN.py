@@ -151,9 +151,6 @@ def treinar_knn_com_validacao_cruzada(ka, n_splits, config: DatasetConfig):
         logging.info(f"Espécies teste: {y_teste.nunique()}")
 
         logging.info(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
-        
-        logging.info(f"Amostras treino: {len(X_treino)}")
-        logging.info(f"Amostras teste: {len(X_teste)}")
 
         matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
         modelo_filename = os.path.join(path_modelos, f"KNN_model_fold_{foldId + 1}.pkl")

@@ -189,14 +189,19 @@ def prever_kmeansc(modelo, X_teste, y_teste, ka):
     
     return f1, topk, y_pred, y_scores_classes
 
-def do_cv_kmeansc(ka, config: DatasetConfig, k_values):
+def do_cv_kmeansc(ka, n_splits, config: DatasetConfig, k_values):
+    
+    path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
+    path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
     
     preparar_pastas(config.path_matrizes, config.path_modelos)
+    
+    path_folds = os.path.join(config.path_folds, f"stratified_group_kfold_{n_splits}.pkl")
 
-    if not os.path.exists(config.path_folds):
+    if not os.path.exists(path_folds):
         raise FileNotFoundError("Folds ainda não foram gerados.")
 
-    folds = carregar_objeto(config.path_folds)
+    folds = carregar_objeto(path_folds)
 
     acuracias = []
     topkScores = []
@@ -216,17 +221,11 @@ def do_cv_kmeansc(ka, config: DatasetConfig, k_values):
         logging.info(f"Espécies treino: {y_treino.nunique()}")
         logging.info(f"Espécies teste: {y_teste.nunique()}")
 
-        logging.info(f"\n=== Fold {foldId + 1} ===")
+        logging.info(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
         
-        modelo_filename = os.path.join(
-            config.path_modelos,
-            f"kmeansc_model_fold_{foldId + 1}.pkl"
-        )
-
-        matriz_filename = os.path.join(
-            config.path_matrizes,
-            f"matriz_{foldId + 1}.pkl"
-        )
+        matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
+        modelo_filename = os.path.join(path_modelos, f"KNN_model_fold_{foldId + 1}.pkl")
+        
 
         if os.path.exists(matriz_filename):
             logging.info("Carregando matriz salva...")
@@ -336,7 +335,7 @@ def main():
         
         inicio_experimento = datetime.now()
 
-        acuracias, topkAcuracias = do_cv_kmeansc(ka, config, k_values=[1, 5, 10, 20, 50])
+        acuracias, topkAcuracias = do_cv_kmeansc(ka, n_splits, config, k_values=[1, 5, 10, 20, 50])
         
         final_experimento = datetime.now()
                 
