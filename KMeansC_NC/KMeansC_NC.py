@@ -49,7 +49,7 @@ DATASET_CONFIGS = {
         nome="Áudios Segmentados",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_nc_treinoSegmentado", # NEAREST-CENTROID
         path_modelos=f"{DATA_VERSION}/modelos_kmeansc_nc_treinoSegmentado",
-        path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
+        path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
 }
 
