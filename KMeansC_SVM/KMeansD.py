@@ -256,6 +256,8 @@ def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
                 X_val_dist = scaler_dist.transform(X_val_dist)
 
                 melhor_f1 = -1
+                melhor_k = None
+                melhor_svm = None
                 
                 for k in k_values:
 
@@ -273,6 +275,7 @@ def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
                         melhor_svm = svm
                 
                 svm = melhor_svm
+                k = melhor_k
                 
                 salvar_objeto({
                     "kmeans": modelo_kmeans,
@@ -348,7 +351,7 @@ def main():
         acuracias, topkAcuracias = do_cv_kmeansd(
             ka, n_splits,
             config=config,
-            k_values=[10, 20, 50],
+            k_values=[10, 20, 50, 100],
             Cs = [100, 1000],
             gammas = ['scale', 2e-2]
         )
