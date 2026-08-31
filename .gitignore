@@ -1,10 +1,9 @@
-RandomForest/v2_media_std/*
 data/*
+folds/novo_filtro/*
 
 *.pkl
 *.log
 *.csv
-
-data/
-__pycache__/
 *.pyc
+
+__pycache__/
