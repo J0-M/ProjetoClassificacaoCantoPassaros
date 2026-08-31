@@ -100,7 +100,11 @@ def main():
 
         for n_splits in N_SPLITS:
             # Construir caminho base das matrizes
-            base_matrizes = os.path.join(nome_clf, version, f"matrizesProba_{sufixo}_treino{tipo.capitalize()}", f"{n_splits}fold")
+            
+            if nome_clf == "KMeansD":
+                base_matrizes = os.path.join("KMeansC_SVM", version, f"matrizesProba_{sufixo}_treino{tipo.capitalize()}", f"{n_splits}fold")
+            else:
+                base_matrizes = os.path.join(nome_clf, version, f"matrizesProba_{sufixo}_treino{tipo.capitalize()}", f"{n_splits}fold")
             
             if not os.path.exists(base_matrizes):
                 print(f"  {n_splits}-fold: diretório não encontrado ({base_matrizes})")

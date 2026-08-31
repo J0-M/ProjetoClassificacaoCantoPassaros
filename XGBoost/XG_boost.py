@@ -49,14 +49,14 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_xgb_treinoSegmentado",
-        path_modelos=f"{DATA_VERSION}/modelos_xgb_treinoSegmentado",
+        path_matrizes=f"{DATA_VERSION}/matrizesProba_xgboost_treinoSegmentado",
+        path_modelos=f"{DATA_VERSION}/modelos_xgboost_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_xgb_treinoCompleto",
-        path_modelos=f"{DATA_VERSION}/modelos_xgb_treinoCompleto",
+        path_matrizes=f"{DATA_VERSION}/matrizesProba_xgboost_treinoCompleto",
+        path_modelos=f"{DATA_VERSION}/modelos_xgboost_treinoCompleto",
         path_folds=f"../folds/{DATA_VERSION}/completo"
     )
 }
@@ -78,7 +78,7 @@ def preparar_pastas(*pastas):
 
 #################################################
 
-def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classes, n_jobs=4):
+def selecionar_melhor_xgboost(param_grid, X_train, X_val, y_train, y_val, num_classes, n_jobs=4):
 
     def treinar(params):
         model = XGBClassifier(
@@ -191,7 +191,7 @@ def do_cv_xgb(ka, n_splits, config, param_grid):
 
         logging.info(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
 
-        modelo_filename = os.path.join(path_modelos, f"xgb_model_fold_{foldId + 1}.pkl")
+        modelo_filename = os.path.join(path_modelos, f"xgboost_model_fold_{foldId + 1}.pkl")
         matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
 
         if os.path.exists(matriz_filename):
@@ -250,7 +250,7 @@ def do_cv_xgb(ka, n_splits, config, param_grid):
                 X_tr = ss.transform(X_tr)
                 X_val = ss.transform(X_val)
 
-                modelo, _, _ = selecionar_melhor_xgb(
+                modelo, _, _ = selecionar_melhor_xgboost(
                     param_grid,
                     X_tr,
                     X_val,
