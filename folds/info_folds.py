@@ -158,6 +158,17 @@ def processar_split(df_original, n_splits):
 
     df_registros = pd.DataFrame(registros)
     
+    resumo = df_registros.groupby(["fold", "conjunto", "especie"])["audioSource"].nunique().reset_index()
+    resumo.columns = ["fold", "conjunto", "especie", "num_gravacoes"]
+
+    # Salva um CSV específico para esse n_splits
+    resumo_path = os.path.join(OUTPUT_DIR, f"resumo_por_especie_{n_splits}fold.csv")
+    resumo.to_csv(resumo_path, index=False, encoding="utf-8")
+
+    # Opcional: imprimir um sumário
+    print("\nResumo por espécie (treino/teste):")
+    print(resumo.pivot_table(index=["fold", "especie"], columns="conjunto", values="num_gravacoes", fill_value=0))
+    
     df_registros.to_csv(
         csv_path,
         index=False,
