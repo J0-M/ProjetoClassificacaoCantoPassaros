@@ -17,7 +17,7 @@ from sklearn.metrics import f1_score, top_k_accuracy_score, classification_repor
 
 CV_SPLITS = [5, 10]
 
-versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
+versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features", "v5_novo_filtro"]
 
 print("Selecione a versão do dataset:")
 for i, v in enumerate(versoes_validas, 1):
