@@ -92,26 +92,21 @@ def segment_to_windows(seg):
     return wins
 
 
-def aggregate_windows(embs, logits, mode="mean"):
-    if mode == "mean":
-        return np.concatenate([embs.mean(0), logits.mean(0)])
-    if mode == "max":
-        return np.concatenate([embs.max(0), logits.max(0)])
-    if mode == "mean_std":
-        return np.concatenate([embs.mean(0), embs.std(0),
-                               logits.mean(0), logits.max(0)])
+def aggregate_windows(embs, mode="mean"):
+    if mode == "mean":     return embs.mean(0)
+    if mode == "max":      return embs.max(0)
+    if mode == "mean_std": return np.concatenate([embs.mean(0), embs.std(0)])
     raise ValueError(mode)
 
 
 def infer_windows(sess, in_name, out_map, wins):
-    embs_list, logits_list = [], []
+    embs_list = []
     for s in range(0, len(wins), BATCH_WINDOWS):
         chunk = np.stack(wins[s: s + BATCH_WINDOWS]).astype(np.float32)
         outs = sess.run(None, {in_name: chunk})
         embs_list.append(outs[out_map.get("embedding", 1)].astype(np.float32))
-        logits_list.append(outs[out_map.get("label", 0)].astype(np.float32))
         del chunk
-    return np.concatenate(embs_list, 0), np.concatenate(logits_list, 0)
+    return np.concatenate(embs_list, 0)
 
 
 def main():
@@ -132,15 +127,12 @@ def main():
     out_map = {o.name: i for i, o in enumerate(sess.get_outputs())}
     print(f"Perch ONNX: {PERCH_ONNX_PATH.name}")
 
-    # Probe para descobrir dimensões
     dummy = np.zeros((1, WINDOW_SAMPLES), dtype=np.float32)
-    outs = sess.run(None, {in_name: dummy})
+    outs  = sess.run(None, {in_name: dummy})
     emb_dim = outs[out_map.get("embedding", 1)].shape[1]
-    n_bc    = outs[out_map.get("label", 0)].shape[1]
     del dummy, outs
-    print(f"  emb_dim={emb_dim}, n_bc={n_bc}")
+    print(f"  emb_dim={emb_dim}")
 
-    # ─── Streaming: 1 ROI por vez ──────────────────────────────────
     print("\nProcessando ROI por ROI (streaming)...")
     rows_feat = []
     rows_meta = []
@@ -158,10 +150,10 @@ def main():
             n_falhas += 1
             continue
 
-        embs, logits = infer_windows(sess, in_name, out_map, wins)
+        embs = infer_windows(sess, in_name, out_map, wins)
         del wins
-        feat = aggregate_windows(embs, logits, AGG_MODE)
-        del embs, logits
+        feat = aggregate_windows(embs, AGG_MODE)
+        del embs
 
         rows_feat.append(feat)
         rows_meta.append({
@@ -181,20 +173,17 @@ def main():
         print("Nada para salvar."); return
 
     if AGG_MODE == "mean_std":
-        emb_cols   = [f"perch_emb_mean_{j}" for j in range(emb_dim)] + \
-                     [f"perch_emb_std_{j}"  for j in range(emb_dim)]
-        logit_cols = [f"perch_logit_mean_{j}" for j in range(n_bc)] + \
-                     [f"perch_logit_max_{j}"  for j in range(n_bc)]
+        emb_cols = [f"perch_emb_mean_{j}" for j in range(emb_dim)] + \
+               [f"perch_emb_std_{j}"  for j in range(emb_dim)]
     else:
-        emb_cols   = [f"perch_emb_{j}"   for j in range(emb_dim)]
-        logit_cols = [f"perch_logit_{j}" for j in range(n_bc)]
+        emb_cols = [f"perch_emb_{j}" for j in range(emb_dim)]
 
-    feat_df = pd.DataFrame(np.stack(rows_feat), columns=emb_cols + logit_cols)
+    feat_df = pd.DataFrame(np.stack(rows_feat), columns=emb_cols)
     meta_df = pd.DataFrame(rows_meta)
     dfCut   = pd.concat([meta_df, feat_df], axis=1)
 
-    bad = dfCut[emb_cols + logit_cols].isna().any(axis=1) | \
-          np.isinf(dfCut[emb_cols + logit_cols].to_numpy()).any(axis=1)
+    bad = dfCut[emb_cols].isna().any(axis=1) | \
+        np.isinf(dfCut[emb_cols].to_numpy()).any(axis=1)
     if bad.any():
         print(f"  descartando {int(bad.sum())} linhas com NaN/inf")
         dfCut = dfCut[~bad].reset_index(drop=True)
