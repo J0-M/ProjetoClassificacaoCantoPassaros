@@ -15,7 +15,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score, classification_report
 
-versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
+CV_SPLITS = [5, 10]
+
+versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features", "v5_novo_filtro"]
 
 print("Selecione a versão do dataset:")
 for i, v in enumerate(versoes_validas, 1):
@@ -42,7 +44,6 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 @dataclass
 class DatasetConfig:
     nome: str
-    path_dataframe: str
     path_matrizes: str
     path_modelos: str
     path_folds: str
@@ -50,10 +51,9 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
         path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_svm_treinoSegmentado",
         path_modelos=f"{DATA_VERSION}/modelos_kmeansc_svm_treinoSegmentado",
-        path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
+        path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
 }
 
@@ -75,13 +75,9 @@ def preparar_pastas(*pastas):
 def calcular_metricas(y_true, y_pred, y_proba, classes, k):
     f1 = f1_score(y_true, y_pred, average="macro")
 
-    mask = np.isin(y_true, classes)
-    if not np.any(mask):
-        return f1, 0
-
     topk = top_k_accuracy_score(
-        y_true[mask],
-        y_proba[mask],
+        y_true,
+        y_proba,
         k=k,
         labels=classes
     )
@@ -93,21 +89,6 @@ def calcular_metricas(y_true, y_pred, y_proba, classes, k):
 ############################################
 
 def split_train_val(X, y):
-    counts = y.value_counts()
-    classes_validas = counts[counts >= 2].index
-
-    logging.info(f"Espécies antes do filtro: {len(counts)}")
-    logging.info(f"Amostras antes do filtro: {len(y)}")
-
-    mask = y.isin(classes_validas)
-    X = X[mask]
-    y = y[mask]
-                
-    logging.info(f"Espécies depois do filtro: {y.nunique()}")
-    logging.info(f"Amostras depois do filtro: {len(y)}")
-                
-    logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
-    
     return train_test_split(X, y, test_size=0.2, stratify=y, shuffle=True, random_state=1)
     
 ################################
@@ -174,14 +155,19 @@ def selecionar_svm(Cs, gammas, X_tr, X_val, y_tr, y_val):
 
     return svm
 
-def do_cv_kmeansc_svm(X, y, ka, config, k_values, Cs, gammas):
+def do_cv_kmeansc_svm(ka, n_splits, config, k_values, Cs, gammas):
     
-    preparar_pastas(config.path_matrizes, config.path_modelos)
-
-    if not os.path.exists(config.path_folds):
+    path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
+    path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
+                
+    preparar_pastas(path_matrizes, path_modelos)
+    
+    path_folds = os.path.join(config.path_folds, f"stratified_group_kfold_{n_splits}.pkl")
+            
+    if not os.path.exists(path_folds):
         raise FileNotFoundError("Folds ainda não foram gerados.")
-
-    folds = carregar_objeto(config.path_folds)
+            
+    folds = carregar_objeto(path_folds)
 
     f1_scores = []
     topk_scores = []
@@ -189,26 +175,22 @@ def do_cv_kmeansc_svm(X, y, ka, config, k_values, Cs, gammas):
     for fold_dict in folds:
 
         foldId = fold_dict["fold"]
-        idx_treino = fold_dict["train_idx"]
-        idx_teste = fold_dict["test_idx"]
+                
+        X_treino = fold_dict["X_train"]
+        y_treino = fold_dict["y_train"]
 
-        print(f"\n=== Fold {foldId + 1} ===")
-
-        X_treino = X.iloc[idx_treino]
-        y_treino = y.iloc[idx_treino]
-
-        X_teste = X.iloc[idx_teste]
-        y_teste = y.iloc[idx_teste]
+        X_teste = fold_dict["X_test"]
+        y_teste = fold_dict["y_test"]
         
-        modelo_filename = os.path.join(
-            config.path_modelos,
-            f"kmeansc_svm_model_fold_{foldId + 1}.pkl"
-        )
+        logging.info(f"Amostras treino: {len(X_treino)}")
+        logging.info(f"Amostras teste: {len(X_teste)}")
+        logging.info(f"Espécies treino: {y_treino.nunique()}")
+        logging.info(f"Espécies teste: {y_teste.nunique()}")
 
-        matriz_filename = os.path.join(
-            config.path_matrizes,
-            f"matriz_{foldId + 1}.pkl"
-        )
+        print(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
+        
+        modelo_filename = os.path.join(path_modelos, f"kmeansc_svm_model_fold_{foldId + 1}.pkl")
+        matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
 
         if os.path.exists(matriz_filename):
             logging.info("Carregando matriz salva...")
@@ -220,10 +202,15 @@ def do_cv_kmeansc_svm(X, y, ka, config, k_values, Cs, gammas):
             classes = matriz["classes"]
 
             y_pred = classes[np.argmax(y_proba, axis=1)]
+            
+            print(f"y_teste atual: {len(y_teste)}")
+            print(f"y_true salvo: {len(y_true)}")
+            print(f"y_proba salvo: {len(y_proba)}")
+            print(f"y_pred: {len(y_pred)}")
 
             f1, topk = calcular_metricas(y_true, y_pred, y_proba, classes, ka)
             
-            f1_report = classification_report(y_teste, y_pred)
+            f1_report = classification_report(y_true, y_pred)
             print(f"\n=== Classification Report Fold {foldId + 1} ===")
             print(f1_report)
             
@@ -328,35 +315,43 @@ def main():
 
     config = DATASET_CONFIGS[tipo]
     
-    if not os.path.exists(config.path_dataframe):
-        logging.error("Dataframe não encontrado!")
-        return
-
-    df = carregar_objeto(config.path_dataframe)
-    logging.info("Dataframe carregado com sucesso!")
+    resultados = {}
     
-    df = df.dropna(subset=["roi_label"])
-    df["roi_label"] = df["roi_label"].astype(str)
+    for n_splits in CV_SPLITS:
+        logging.info(f"EXPERIMENTO {n_splits}-FOLD")
+        
+        inicio_experimento = datetime.now()
 
-    X = df.drop(columns=["roi_label", "audioSource"])
-    y = df["roi_label"]
-
-    logging.info(f"Quantidade de amostras: {X.shape}, Quantidade de classes: {y.nunique()}")
-    
-    acuracias, topkAcuracias = do_cv_kmeansc_svm(
-        X, y,
-        ka=ka,
-        config=config,
-        k_values=[5, 10, 20, 50, 100],
-        Cs = [100, 1000],
-        gammas = ['scale', 2e-2]
-    )
-    
-    print(f"\n-- TESTE {config.nome.upper()} --")
-    print("F1-Score Macro:")
-    print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {np.mean(acuracias):.2f} ± {np.std(acuracias):.2f}")
-    print(f"\nTop-{ka} Score:")
-    print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {np.mean(topkAcuracias):.2f} ± {np.std(topkAcuracias):.2f}")
+        acuracias, topkAcuracias = do_cv_kmeansc_svm(
+            ka, n_splits,
+            config=config,
+            k_values=[5, 10, 20, 50, 100],
+            Cs = [100, 1000],
+            gammas = ['scale', 2e-2]
+        )
+        
+        final_experimento = datetime.now()
+        
+        resultados[n_splits] = {
+            "f1": acuracias,
+            "topk": topkAcuracias
+        }
+        
+        logging.info(f"Tempo de Experimento - {n_splits} FOLD = {final_experimento - inicio_experimento}")
+        
+        #print(f"\n-- TESTE {config.nome.upper()} --")
+        #print("F1-Score Macro:")
+        #print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {np.mean(acuracias):.2f} ± {np.std(acuracias):.2f}")
+        #print(f"\nTop-{ka} Score:")
+        #print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {np.mean(topkAcuracias):.2f} ± {np.std(topkAcuracias):.2f}")
+            
+    for n_splits, resultado in resultados.items():
+        f1s = resultado["f1"]
+        topks = resultado["topk"]
+            
+        print(f"\n{n_splits}-FOLD:")
+        print(f"F1 Macro = {np.mean(f1s):.2f}±{np.std(f1s):.2f}")
+        print(f"Top-{ka} = {np.mean(topks):.2f} ± {np.std(topks):.2f}")
 
 if __name__ == '__main__':
     startTime = datetime.now()

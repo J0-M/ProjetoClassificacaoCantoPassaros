@@ -120,10 +120,10 @@ def main():
 
     print(f"Total de espécies: {len(valores)}")
     print(f"Total de áudios: {len(dataframe)}")
-    print(f"Mínimo de recortes por espécie: {min_amostras}")
-    print(f"Máximo de recortes por espécie: {max_amostras}")
-    print(f"Média de recortes por espécie: {media_amostras:.2f}")
-    print(f"Mediana de recortes por espécie: {mediana_amostras}")
+    print(f"Mínimo de amostras por espécie: {min_amostras}")
+    print(f"Máximo de amostras por espécie: {max_amostras}")
+    print(f"Média de amostras por espécie: {media_amostras:.2f}")
+    print(f"Mediana de amostras por espécie: {mediana_amostras}")
     print(f"Desvio padrão: {std_amostras:.2f}")
     print(f"Razão de desbalanceamento (max/min): {razao_desbalanceamento:.2f}")
 
@@ -131,12 +131,12 @@ def main():
     plt.figure(figsize=(10,6))
     plt.hist(contagem_por_especie.values, bins=30, edgecolor="black")
 
-    plt.title("Distribuição de recortes por espécie")
-    plt.xlabel("Número de recortes por espécie")
+    plt.title("Distribuição de amostras por espécie")
+    plt.xlabel("Número de amostras por espécie")
     plt.ylabel("Quantidade de espécies")
 
     plt.grid(alpha=0.3)
-    #plt.show()
+    plt.show()
     
     print(dataframe.head())
 

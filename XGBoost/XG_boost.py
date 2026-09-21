@@ -1,5 +1,5 @@
 import os
-import numpy as npy
+import numpy as np
 import pickle
 import itertools
 import logging
@@ -13,7 +13,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
-versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
+CV_SPLITS = [5, 10]
+
+versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features", "v5_novo_filtro"]
 
 print("Selecione a versão do dataset:")
 for i, v in enumerate(versoes_validas, 1):
@@ -40,7 +42,6 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 @dataclass
 class DatasetConfig:
     nome: str
-    path_dataframe: str
     path_matrizes: str
     path_modelos: str
     path_folds: str
@@ -48,17 +49,15 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_xgb_treinoSegmentado",
-        path_modelos=f"{DATA_VERSION}/modelos_xgb_treinoSegmentado",
-        path_folds=f"../folds/{DATA_VERSION}/segmentado/stratified_group_kfold_10.pkl"
+        path_matrizes=f"{DATA_VERSION}/matrizesProba_xgboost_treinoSegmentado",
+        path_modelos=f"{DATA_VERSION}/modelos_xgboost_treinoSegmentado",
+        path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
     "completo": DatasetConfig(
         nome="Áudios Completos",
-        path_dataframe=f"../dataframes/{DATA_VERSION}/dataframeAudioCompleto.pkl",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_xgb_treinoCompleto",
-        path_modelos=f"{DATA_VERSION}/modelos_xgb_treinoCompleto",
-        path_folds=f"../folds/{DATA_VERSION}/completo/stratified_group_kfold_10.pkl"
+        path_matrizes=f"{DATA_VERSION}/matrizesProba_xgboost_treinoCompleto",
+        path_modelos=f"{DATA_VERSION}/modelos_xgboost_treinoCompleto",
+        path_folds=f"../folds/{DATA_VERSION}/completo"
     )
 }
 
@@ -79,7 +78,7 @@ def preparar_pastas(*pastas):
 
 #################################################
 
-def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classes, n_jobs=4):
+def selecionar_melhor_xgboost(param_grid, X_train, X_val, y_train, y_val, num_classes, n_jobs=4):
 
     def treinar(params):
         model = XGBClassifier(
@@ -112,7 +111,7 @@ def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classe
         delayed(treinar)(p) for p in dicts_param
     )
 
-    best_idx = npy.argmax(scores)
+    best_idx = np.argmax(scores)
     best_params = dicts_param[best_idx]
     best_score = scores[best_idx]
 
@@ -141,18 +140,13 @@ def selecionar_melhor_xgb(param_grid, X_train, X_val, y_train, y_val, num_classe
 #################################################
 
 def calcular_metricas(y_true, y_proba, classes, ka):
-    y_pred = classes[npy.argmax(y_proba, axis=1)]
+    y_pred = classes[np.argmax(y_proba, axis=1)]
     
     f1 = f1_score(y_true, y_pred, average="macro")
-
-    mask = npy.isin(y_true, classes)
-    
-    if mask.sum() == 0:
-        return f1, 0
     
     topk = top_k_accuracy_score(
-        y_true[mask],
-        y_proba[mask],
+        y_true,
+        y_proba,
         k=ka,
         labels=classes
     )
@@ -164,38 +158,41 @@ def calcular_metricas(y_true, y_proba, classes, ka):
 
 #################################################
 
-def do_cv_xgb(X, y, ka, config, param_grid):
+def do_cv_xgb(ka, n_splits, config, param_grid):
 
-    preparar_pastas(config.path_matrizes, config.path_modelos)
+    path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
+    path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
+            
+    preparar_pastas(path_matrizes, path_modelos)
 
-    if not os.path.exists(config.path_folds):
+    path_folds = os.path.join(config.path_folds, f"stratified_group_kfold_{n_splits}.pkl")
+        
+    if not os.path.exists(path_folds):
         raise FileNotFoundError("Folds ainda não foram gerados.")
-    
-    folds = carregar_objeto(config.path_folds)
+        
+    folds = carregar_objeto(path_folds)
 
     acuracias, topkScores = [], []
 
     for fold_dict in folds:
 
         foldId = fold_dict["fold"]
-        idx_treino = fold_dict["train_idx"]
-        idx_teste = fold_dict["test_idx"]
+                        
+        X_train = fold_dict["X_train"]
+        y_train = fold_dict["y_train"]
+        
+        X_test = fold_dict["X_test"]
+        y_test = fold_dict["y_test"]
+        
+        logging.info(f"Amostras treino: {len(X_train)}")
+        logging.info(f"Amostras teste: {len(X_test)}")
+        logging.info(f"Espécies treino: {y_train.nunique()}")
+        logging.info(f"Espécies teste: {y_test.nunique()}")
 
-        logging.info(f"\n=== Fold {foldId + 1} ===")
+        logging.info(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
 
-        X_train = X.iloc[idx_treino]
-        y_train = y.iloc[idx_treino]
-
-        X_test = X.iloc[idx_teste]
-        y_test = y.iloc[idx_teste]
-
-        modelo_filename = os.path.join(
-            config.path_modelos, f"xgb_model_fold_{foldId + 1}.pkl"
-        )
-
-        matriz_filename = os.path.join(
-            config.path_matrizes, f"matriz_{foldId + 1}.pkl"
-        )
+        modelo_filename = os.path.join(path_modelos, f"xgboost_model_fold_{foldId + 1}.pkl")
+        matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
 
         if os.path.exists(matriz_filename):
 
@@ -209,7 +206,7 @@ def do_cv_xgb(X, y, ka, config, param_grid):
             
             print("Classes fora do modelo:", set(y_true) - set(classes))
 
-            y_pred = classes[npy.argmax(y_proba, axis=1)]
+            y_pred = classes[np.argmax(y_proba, axis=1)]
 
             f1, topk = calcular_metricas(y_true, y_proba, classes, ka)
             
@@ -227,23 +224,6 @@ def do_cv_xgb(X, y, ka, config, param_grid):
             else:
 
                 logging.info("Treinando modelo...")
-
-                print(y_train.value_counts().min())
-                
-                counts = y_train.value_counts()
-                classes_validas = counts[counts >= 2].index
-                
-                logging.info(f"Espécies antes do filtro: {len(counts)}")
-                logging.info(f"Amostras antes do filtro: {len(y_train)}")
-
-                mask = y_train.isin(classes_validas)
-                X_train = X_train[mask]
-                y_train = y_train[mask]
-                
-                logging.info(f"Espécies depois do filtro: {y_train.nunique()}")
-                logging.info(f"Amostras depois do filtro: {len(y_train)}")
-                
-                logging.info(f"Espécies removidas: {len(set(counts.index) - set(classes_validas))}")
 
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_train,
@@ -270,7 +250,7 @@ def do_cv_xgb(X, y, ka, config, param_grid):
                 X_tr = ss.transform(X_tr)
                 X_val = ss.transform(X_val)
 
-                modelo, _, _ = selecionar_melhor_xgb(
+                modelo, _, _ = selecionar_melhor_xgboost(
                     param_grid,
                     X_tr,
                     X_val,
@@ -292,18 +272,13 @@ def do_cv_xgb(X, y, ka, config, param_grid):
 
             logging.info("Calculando matriz...")
 
-            # filtrar apenas classes vistas
-            mask_test = y_test.isin(le.classes_)
-            X_test_filtrado = X_test[mask_test]
-            y_test_filtrado = y_test[mask_test]
-
-            y_test_encoded = le.transform(y_test_filtrado)
-            X_test_filtrado = ss.transform(X_test_filtrado)
-
-            y_pred = modelo.predict(X_test_filtrado)
-            y_proba = modelo.predict_proba(X_test_filtrado)
-
+            X_test_scaled = ss.transform(X_test)
+            y_proba = modelo.predict_proba(X_test_scaled)
+            
             classes = modelo.classes_
+            
+            y_test_encoded = le.transform(y_test)
+            y_pred = classes[np.argmax(y_proba, axis=1)]
 
             f1 = f1_score(y_test_encoded, y_pred, average="macro")
 
@@ -356,11 +331,6 @@ def main():
 
     config = DATASET_CONFIGS[tipo]
 
-    df = carregar_objeto(config.path_dataframe)
-
-    X = df.drop(columns=["roi_label", "audioSource"])
-    y = df["roi_label"]
-
     param_grid = {
         "max_depth": [4, 6],
         "learning_rate": [0.05, 0.1],
@@ -368,14 +338,38 @@ def main():
         "colsample_bytree": [0.7, 1.0]
         #"n_estimators": [200, 400]
     }
+      
+    resultados = {}
+        
+    for n_splits in CV_SPLITS:
+        logging.info(f"EXPERIMENTO {n_splits}-FOLD")
+        
+        inicio_experimento = datetime.now()
 
-    acuracias, topkAcuracias = do_cv_xgb(X, y, ka, config, param_grid)
+        acuracias, topkAcuracias = do_cv_xgb(ka, n_splits, config, param_grid)
+        
+        final_experimento = datetime.now()
+        
+        resultados[n_splits] = {
+            "f1": acuracias,
+            "topk": topkAcuracias
+        }
+        
+        logging.info(f"Tempo de Experimento - {n_splits} FOLD = {final_experimento - inicio_experimento}")
 
-    print(f"\n-- TESTE {config.nome.upper()} --")
-    print("F1-Score Macro:")
-    print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {npy.mean(acuracias):.2f} ± {npy.std(acuracias):.2f}")
-    print(f"\nTop-{ka} Score:")
-    print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {npy.mean(topkAcuracias):.2f} ± {npy.std(topkAcuracias):.2f}")
+        #print(f"\n-- TESTE {config.nome.upper()} --")
+        #print("F1-Score Macro:")
+        #print(f"min: {min(acuracias):.2f}, max: {max(acuracias):.2f}, avg ± std: {np.mean(acuracias):.2f} ± {np.std(acuracias):.2f}")
+        #print(f"\nTop-{ka} Score:")
+        #print(f"min: {min(topkAcuracias):.2f}, max: {max(topkAcuracias):.2f}, avg ± std: {np.mean(topkAcuracias):.2f} ± {np.std(topkAcuracias):.2f}")
+        
+    for n_splits, resultado in resultados.items():
+        f1s = resultado["f1"]
+        topks = resultado["topk"]
+            
+        print(f"\n{n_splits}-FOLD:")
+        print(f"F1 Macro = {np.mean(f1s):.2f}±{np.std(f1s):.2f}")
+        print(f"Top-{ka} = {np.mean(topks):.2f} ± {np.std(topks):.2f}")
 
 if __name__ == '__main__':
     startTime = datetime.now()
