@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 
-DATA_VERSION = "v4_novas_features"
+DATA_VERSION = "v6_perch"
 
-CV_SPLITS = [3, 5, 10]
+CV_SPLITS = [5, 10]
 RANDOM_STATE = 1
 
 

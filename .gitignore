@@ -1,5 +1,6 @@
 data/*
 folds/novo_filtro/*
+dataframes/v6_perch/*
 
 *.pkl
 *.log
@@ -8,3 +9,5 @@ folds/novo_filtro/*
 temp.py
 
 __pycache__/
+
+*.onnx
