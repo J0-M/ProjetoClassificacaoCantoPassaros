@@ -109,7 +109,6 @@ def gerar_folds_novo_filtro(df, input_path, output_path, n_splits):
         test_idx = [key_to_idx[k] for k in test_keys if k in key_to_idx]
         train_idx = [key_to_idx[k] for k in train_keys if k in key_to_idx]
 
-        # Log de quantas chaves dos txts não bateram com o dataframe
         n_falta_test = len(test_keys) - len(test_idx)
         n_falta_train = len(train_keys) - len(train_idx)
         if n_falta_test or n_falta_train:
@@ -134,7 +133,6 @@ def gerar_folds_novo_filtro(df, input_path, output_path, n_splits):
 
         print(f"Fold {fold_id}: treino={len(X_train)} | teste={len(X_test)}")
 
-    # Salva no mesmo formato dos pkls de v4_novas_features/<tipo>/
     salvar_objeto(folds, output_path)
     print(f"Folds ({n_splits}) salvos em: {output_path}")
 

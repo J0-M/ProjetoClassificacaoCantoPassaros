@@ -4,7 +4,7 @@ import logging
 import pandas as pd
 
 DATA_VERSION = "v4_novas_features"
-CV_SPLITS = [2, 3, 5, 10]
+CV_SPLITS = [3, 5, 10]
 DF_PATH = f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl"
 OUTPUT_DIR = f"{DATA_VERSION}/segmentado"
 
