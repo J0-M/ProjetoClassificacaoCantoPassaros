@@ -1,27 +1,33 @@
 import os
 import pickle
 import numpy as np
+import pandas as pd
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
 # ============================================
-# Configurações iniciais
+# Configurações
 # ============================================
 
-DATA_VERSIONS = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features"]
+DATA_VERSIONS = ["v1_media", "v2_media_std", "v3_media_std_freq",
+                 "v4_novas_features", "v5_novo_filtro", "v6_perch"]
 TYPES = ["segmentado", "completo"]
+
 CLASSIFIERS = {
-    "KNN": "knn",
-    "SVM": "svm",
-    "XGBoost": "xgboost",
-    "KMeansC_NC": "kmeansc_nc",
+    "KNN":         "knn",
+    "SVM":         "svm",
+    "XGBoost":     "xgboost",
+    "KMeansC_NC":  "kmeansc_nc",
     "KMeansC_SVM": "kmeansc_svm",
-    "KMeansD": "kmeansd"
+    "KMeansD":     "kmeansd",
 }
+
 N_SPLITS = [5, 10]
-TOP_K = 5   # altere se necessário
+TOP_K = 5
+
+CSV_OUT = "tabela_comparativa_global.csv"
 
 # ============================================
-# Funções utilitárias
+# Utilitários
 # ============================================
 
 def carregar_objeto(caminho):
@@ -29,137 +35,183 @@ def carregar_objeto(caminho):
         return pickle.load(f)
 
 def calcular_metricas(y_true, y_proba, classes, k=TOP_K):
-    """
-    Calcula F1 macro e Top-k accuracy.
-    Filtra y_true e y_proba para manter apenas classes presentes em `classes`.
-    """
-    # Filtrar amostras cujo rótulo não está em classes (rótulos desconhecidos pelo modelo)
+    y_true = np.asarray(y_true)
     mask = np.isin(y_true, classes)
     y_true_f = y_true[mask]
     y_proba_f = y_proba[mask]
-
     if len(y_true_f) == 0:
-        return 0.0, 0.0   # fold vazio, retorna 0
-
-    # Predição hard
+        return None
     y_pred = classes[np.argmax(y_proba_f, axis=1)]
-
     f1 = f1_score(y_true_f, y_pred, average="macro")
-
-    topk = top_k_accuracy_score(
-        y_true_f,
-        y_proba_f,
-        k=k,
-        labels=classes
-    )
-
+    topk = top_k_accuracy_score(y_true_f, y_proba_f, k=k, labels=classes)
     return f1, topk
 
-def carregar_metricas_fold(caminho_matriz):
-    """Carrega um arquivo de matriz e retorna (f1, topk) ou None se der erro."""
+def metricas_fold(caminho_matriz):
     try:
-        matriz = carregar_objeto(caminho_matriz)
-        y_true = matriz["y_true"]
-        y_proba = matriz["y_proba"]
-        classes = matriz["classes"]
-        f1, topk = calcular_metricas(y_true, y_proba, classes)
-        return f1, topk
-    except Exception as e:
-        print(f"  Erro ao processar {caminho_matriz}: {e}")
+        m = carregar_objeto(caminho_matriz)
+        return calcular_metricas(m["y_true"], m["y_proba"], m["classes"])
+    except Exception:
         return None
 
-def main():
-    # Seleção da versão
-    print("Selecione a versão do dataset:")
-    for i, v in enumerate(DATA_VERSIONS, 1):
-        print(f"{i} - {v}")
-    idx_v = int(input("Digite o número da versão: ").strip()) - 1
-    if idx_v < 0 or idx_v >= len(DATA_VERSIONS):
-        print("Versão inválida!")
-        return
-    version = DATA_VERSIONS[idx_v]
+def caminho_base(nome_clf, sufixo, version, tipo, n_splits):
+    pasta_clf = "KMeansC_SVM" if nome_clf == "KMeansD" else nome_clf
+    return os.path.join(
+        pasta_clf, version,
+        f"matrizesProba_{sufixo}_treino{tipo.capitalize()}",
+        f"{n_splits}fold",
+    )
 
-    # Seleção do tipo
-    print("\nSelecione o tipo de dataset:")
-    for i, t in enumerate(TYPES, 1):
-        print(f"{i} - {t.capitalize()}")
-    idx_t = int(input("Digite o número do tipo: ").strip()) - 1
-    if idx_t < 0 or idx_t >= len(TYPES):
-        print("Tipo inválido!")
-        return
-    tipo = TYPES[idx_t]
+# ============================================
+# Coleta
+# ============================================
 
-    print(f"\n=== Resultados para versão '{version}' - tipo '{tipo}' ===")
+def coletar_resultados():
+    registros = []
+    total = len(DATA_VERSIONS) * len(TYPES) * len(CLASSIFIERS) * len(N_SPLITS)
+    feito = 0
 
-    # Para cada classificador, carregar métricas
-    resultados_por_classificador = {}
+    for version in DATA_VERSIONS:
+        for tipo in TYPES:
+            for nome_clf, sufixo in CLASSIFIERS.items():
+                for n_splits in N_SPLITS:
+                    feito += 1
+                    prog = f"[{feito:>3}/{total}]"
+                    base = caminho_base(nome_clf, sufixo, version, tipo, n_splits)
+                    if not os.path.isdir(base):
+                        continue
 
-    for nome_clf, sufixo in CLASSIFIERS.items():
-        print(f"\n--- Classificador: {nome_clf} ---")
-        resultados_por_classificador[nome_clf] = {}
+                    f1_list, topk_list = [], []
+                    for fold_id in range(1, n_splits + 1):
+                        arq = os.path.join(base, f"matriz_{fold_id}.pkl")
+                        if not os.path.exists(arq):
+                            continue
+                        met = metricas_fold(arq)
+                        if met is None:
+                            continue
+                        f1, topk = met
+                        f1_list.append(f1)
+                        topk_list.append(topk)
 
+                    if not f1_list:
+                        continue
+
+                    registros.append({
+                        "version":    version,
+                        "tipo":       tipo,
+                        "classifier": nome_clf,
+                        "n_splits":   n_splits,
+                        "n_folds_ok": len(f1_list),
+                        "f1_mean":    float(np.mean(f1_list)),
+                        "f1_std":     float(np.std(f1_list)),
+                        "topk_mean":  float(np.mean(topk_list)),
+                        "topk_std":   float(np.std(topk_list)),
+                    })
+                    print(f"{prog} {version:>18} | {tipo:<10} | {nome_clf:<12} | "
+                          f"{n_splits}-fold : "
+                          f"F1={np.mean(f1_list):.4f}±{np.std(f1_list):.4f} | "
+                          f"Top-{TOP_K}={np.mean(topk_list):.4f}±{np.std(topk_list):.4f}")
+
+    return pd.DataFrame(registros)
+
+# ============================================
+# Tabela por (versão, tipo) — formato original
+# ============================================
+
+def montar_tabela(sub):
+    """
+    sub: DataFrame filtrado por (version, tipo).
+    Retorna DataFrame com uma linha por classificador e colunas:
+    Classificador | {n}-Fold F1 | {n}-Fold Top-K | ... para cada n em N_SPLITS
+    """
+    linhas = []
+    for nome_clf in CLASSIFIERS.keys():
+        linha = {"Classificador": nome_clf}
         for n_splits in N_SPLITS:
-            # Construir caminho base das matrizes
-            
-            if nome_clf == "KMeansD":
-                base_matrizes = os.path.join("KMeansC_SVM", version, f"matrizesProba_{sufixo}_treino{tipo.capitalize()}", f"{n_splits}fold")
+            r = sub[(sub["classifier"] == nome_clf) & (sub["n_splits"] == n_splits)]
+            if r.empty:
+                linha[f"{n_splits}-Fold F1"]       = "N/D"
+                linha[f"{n_splits}-Fold Top-{TOP_K}"] = "N/D"
             else:
-                base_matrizes = os.path.join(nome_clf, version, f"matrizesProba_{sufixo}_treino{tipo.capitalize()}", f"{n_splits}fold")
-            
-            if not os.path.exists(base_matrizes):
-                print(f"  {n_splits}-fold: diretório não encontrado ({base_matrizes})")
-                resultados_por_classificador[nome_clf][n_splits] = None
-                continue
+                f1m = r["f1_mean"].iloc[0];  f1s = r["f1_std"].iloc[0]
+                tkm = r["topk_mean"].iloc[0]; tks = r["topk_std"].iloc[0]
+                linha[f"{n_splits}-Fold F1"]       = f"{f1m:.4f}±{f1s:.4f}"
+                linha[f"{n_splits}-Fold Top-{TOP_K}"] = f"{tkm:.4f}±{tks:.4f}"
+        linhas.append(linha)
+    return pd.DataFrame(linhas)
 
-            f1_list = []
-            topk_list = []
+def largura_colunas(tabela):
+    """Larguras dinâmicas, baseadas no cabeçalho e nos valores."""
+    larguras = {}
+    for col in tabela.columns:
+        w = max(len(col), tabela[col].astype(str).str.len().max())
+        larguras[col] = w + 2
+    return larguras
 
-            for fold_id in range(1, n_splits + 1):
-                caminho_matriz = os.path.join(base_matrizes, f"matriz_{fold_id}.pkl")
-                if not os.path.exists(caminho_matriz):
-                    print(f"  Fold {fold_id}: matriz não encontrada")
-                    continue
+def imprimir_tabela_original(df):
+    """Uma tabela por (versão, tipo), no mesmo layout do script original."""
+    combos = (df[["version", "tipo"]]
+              .drop_duplicates()
+              .sort_values(["version", "tipo"]))
 
-                metricas = carregar_metricas_fold(caminho_matriz)
-                if metricas is not None:
-                    f1, topk = metricas
-                    f1_list.append(f1)
-                    topk_list.append(topk)
+    for _, row in combos.iterrows():
+        version, tipo = row["version"], row["tipo"]
+        sub = df[(df["version"] == version) & (df["tipo"] == tipo)]
+        if sub.empty:
+            continue
 
-            if len(f1_list) == 0:
-                print(f"  {n_splits}-fold: nenhuma matriz válida encontrada")
-                resultados_por_classificador[nome_clf][n_splits] = None
-            else:
-                f1_mean = np.mean(f1_list)
-                f1_std = np.std(f1_list)
-                topk_mean = np.mean(topk_list)
-                topk_std = np.std(topk_list)
-                resultados_por_classificador[nome_clf][n_splits] = {
-                    "f1_mean": f1_mean, "f1_std": f1_std,
-                    "topk_mean": topk_mean, "topk_std": topk_std
-                }
-                print(f"  {n_splits}-fold: F1={f1_mean:.4f} ± {f1_std:.4f} | Top-{TOP_K}={topk_mean:.4f} ± {topk_std:.4f}")
+        tabela = montar_tabela(sub)
+        larg = largura_colunas(tabela)
 
-    # Exibição final em formato de tabela
-    print("\n\n=== Tabela Resumo ===")
-    print(f"{'Classificador':<15} {'5-Fold F1':<18} {'5-Fold Top-5':<18} {'10-Fold F1':<18} {'10-Fold Top-5':<18}")
-    print("-" * 80)
+        titulo = f"Resultados para versão '{version}' - tipo '{tipo}'"
+        total_w = sum(larg.values())
 
-    for nome_clf in resultados_por_classificador:
-        res5 = resultados_por_classificador[nome_clf].get(5)
-        res10 = resultados_por_classificador[nome_clf].get(10)
+        print()
+        print("═" * total_w)
+        print(f"  {titulo}")
+        print("═" * total_w)
 
-        def fmt(r):
-            if r is None:
-                return "N/D"
-            return f"{r['f1_mean']:.4f}±{r['f1_std']:.4f}"
+        # Cabeçalho
+        header = "".join(f"{col:<{larg[col]}}" for col in tabela.columns)
+        print(header)
+        print("-" * total_w)
 
-        def fmt_top(r):
-            if r is None:
-                return "N/D"
-            return f"{r['topk_mean']:.4f}±{r['topk_std']:.4f}"
+        # Linhas
+        for _, linha in tabela.iterrows():
+            print("".join(f"{str(linha[col]):<{larg[col]}}" for col in tabela.columns))
 
-        print(f"{nome_clf:<15} {fmt(res5):<18} {fmt_top(res5):<18} {fmt(res10):<18} {fmt_top(res10):<18}")
+# ============================================
+# Main
+# ============================================
+
+def main():
+    print(f"Varredura: {len(DATA_VERSIONS)} versões × "
+          f"{len(TYPES)} tipos × {len(CLASSIFIERS)} classificadores × "
+          f"{len(N_SPLITS)} splits")
+    print("─" * 130)
+
+    df = coletar_resultados()
+    if df.empty:
+        print("Nada encontrado. Confira se os diretórios matrizesProba_* existem.")
+        return
+
+    df.to_csv(CSV_OUT, index=False, encoding="utf-8")
+    print(f"\nCSV salvo: {CSV_OUT}  ({len(df)} linhas)")
+
+    # ─── Tabelas no formato original, uma por (versão, tipo) ───
+    imprimir_tabela_original(df)
+
+    # ─── Ranking por n_splits ───
+    print()
+    print("═" * 130)
+    print("  MELHORES COMBINAÇÕES POR n_splits  (F1 Macro)")
+    print("═" * 130)
+    for n in N_SPLITS:
+        sub = df[df["n_splits"] == n].sort_values("f1_mean", ascending=False)
+        if sub.empty:
+            continue
+        top5 = sub.head(5)[["version", "tipo", "classifier", "f1_mean", "topk_mean"]]
+        print(f"\n--- {n}-fold ---")
+        print(top5.to_string(index=False))
 
 if __name__ == "__main__":
     main()
