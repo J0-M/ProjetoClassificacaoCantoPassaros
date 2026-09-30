@@ -126,12 +126,12 @@ def imprimir_tabela(resultados_por_classificador, version, tipo):
         def fmt(r):
             if r is None:
                 return "N/D"
-            return f"{r['f1_mean']:.4f}±{r['f1_std']:.4f}"
+            return f"{r['f1_mean']:.2f}±{r['f1_std']:.2f}"
 
         def fmt_top(r):
             if r is None:
                 return "N/D"
-            return f"{r['topk_mean']:.4f}±{r['topk_std']:.4f}"
+            return f"{r['topk_mean']:.2f}±{r['topk_std']:.2f}"
 
         print(f"{nome_clf:<15} {fmt(res5):<18} {fmt_top(res5):<18} {fmt(res10):<18} {fmt_top(res10):<18}")
 
