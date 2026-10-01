@@ -13,7 +13,7 @@ from sklearn.metrics import f1_score, top_k_accuracy_score, pairwise_distances
 
 CV_SPLITS = [5, 10]
 
-versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features", "v5_novo_filtro"]
+versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features", "v5_novo_filtro", "v6_perch"]
 
 print("Selecione a versão do dataset:")
 for i, v in enumerate(versoes_validas, 1):
@@ -167,12 +167,12 @@ def prever_kmeansc(modelo, X_teste, y_teste, ka):
     classes = np.unique(labels_centroides) 
     n_samples = X_teste.shape[0]
 
-    y_scores_classes = np.full((n_samples, len(classes)), -np.inf)
+    y_proba_classes = np.full((n_samples, len(classes)), -np.inf)
 
     for i, classe in enumerate(classes):
         mask = labels_centroides == classe
         # pegar melhor centroide da classe
-        y_scores_classes[:, i] = -np.min(distancias[:, mask], axis=1)
+        y_proba_classes[:, i] = -np.min(distancias[:, mask], axis=1)
     
     ####################
     
@@ -182,12 +182,12 @@ def prever_kmeansc(modelo, X_teste, y_teste, ka):
 
     topk = top_k_accuracy_score(
         y_teste,
-        y_scores_classes,
+        y_proba_classes,
         k=ka,
         labels=classes_treino
     )
     
-    return f1, topk, y_pred, y_scores_classes
+    return f1, topk, y_pred, y_proba_classes
 
 def do_cv_kmeansc(ka, n_splits, config: DatasetConfig, k_values):
     
@@ -233,20 +233,20 @@ def do_cv_kmeansc(ka, n_splits, config: DatasetConfig, k_values):
             matriz = carregar_objeto(matriz_filename)
 
             y_true = matriz["y_true"]
-            y_scores = matriz["y_scores"]
+            y_proba = matriz["y_proba"]
             classes = matriz["classes"]
             
             print("Classes fora do modelo:", set(y_true) - set(classes))
 
             # reconstruir predição
-            y_pred = classes[np.argmax(y_scores, axis=1)]
+            y_pred = classes[np.argmax(y_proba, axis=1)]
 
             # métricas
             f1 = f1_score(y_true, y_pred, average="macro")
             
             topk = top_k_accuracy_score(
                 y_true,
-                y_scores,
+                y_proba,
                 k=ka,
                 labels=classes
             )
@@ -282,7 +282,7 @@ def do_cv_kmeansc(ka, n_splits, config: DatasetConfig, k_values):
 
             logging.info("Calculando matriz...")
 
-            f1, topk, y_pred, y_scores = prever_kmeansc(
+            f1, topk, y_pred, y_proba = prever_kmeansc(
                 modelo,
                 X_teste.values,
                 y_teste.values,
@@ -294,7 +294,7 @@ def do_cv_kmeansc(ka, n_splits, config: DatasetConfig, k_values):
             salvar_objeto({
                 "fold": foldId,
                 "y_true": y_teste.values,
-                "y_scores": y_scores,
+                "y_proba": y_proba,
                 "classes": classes
             }, matriz_filename)
 
