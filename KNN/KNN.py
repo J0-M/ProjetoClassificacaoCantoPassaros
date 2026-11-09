@@ -6,10 +6,13 @@ import logging
 from datetime import datetime
 from dataclasses import dataclass
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import f1_score, top_k_accuracy_score
+
+from collections import Counter
+from imblearn.over_sampling import SMOTE, RandomOverSampler
 
 CV_SPLITS = [5, 10]
 
@@ -33,6 +36,34 @@ if idx < 0 or idx >= len(versoes_validas):
 
 DATA_VERSION = versoes_validas[idx]
 
+#################################################
+
+estrategias_validas = ["none", "ros", "smote"]
+
+NOMES_ESTRATEGIAS = {
+    "none":  "Sem balanceamento (baseline)",
+    "ros":   "Random Oversampling",
+    "smote": "SMOTE (Synthetic Minority Over-sampling)",
+}
+
+print("\nSelecione a estratégia de balanceamento:")
+for i, e in enumerate(estrategias_validas, 1):
+    print(f"{i} - {e:<6s} ({NOMES_ESTRATEGIAS[e]})")
+
+entrada = input("Digite o número da estratégia desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(estrategias_validas):
+    logging.error("Estratégia inválida!")
+    exit()
+    
+REBALANCE = estrategias_validas[idx]
+
 ########## CONFIGURAÇÃO LOGGING #################
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -48,15 +79,9 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_knn_treinoSegmentado",
-        path_modelos=f"{DATA_VERSION}/modelos_knn_treinoSegmentado",
+        path_matrizes=f"{DATA_VERSION}/{REBALANCE}/matrizesProba_knn_treinoSegmentado",
+        path_modelos=f"{DATA_VERSION}/{REBALANCE}/modelos_knn_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado"
-    ),
-    "completo": DatasetConfig(
-        nome="Áudios Completos",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_knn_treinoCompleto",
-        path_modelos=f"{DATA_VERSION}/modelos_knn_treinoCompleto",
-        path_folds=f"../folds/{DATA_VERSION}/completo"
     ),
 }
 
@@ -79,11 +104,33 @@ def carregar_objeto(caminho):
 def preparar_pastas(*pastas):
     for pasta in pastas:
         os.makedirs(pasta, exist_ok=True)
+        
+def balancear(X, y, strategy, random_state=10):
+    if strategy == "none":
+        return X, y
+
+    if strategy == "ros":
+        return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+
+    if strategy == "smote":
+        min_count = min(Counter(y).values())
+        k = min(5, min_count - 1)
+        
+        if k < 1:
+            logging.warning(f"Classe minoritária tem {min_count} amostra(s); SMOTE inviável, usando ROS como fallback.")
+            return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+        
+        return SMOTE(random_state=random_state, k_neighbors=k).fit_resample(X, y)
+    
+    if strategy == "all":
+        raise ValueError("'all' não é uma estratégia de balanceamento; "
+                        "é uma opção de execução (use lista de estratégias).")
+
+    raise ValueError(f"Estratégia de balanceamento desconhecida: {strategy}")
 
 #################################################
 
-
-def selecionar_melhor_k(ks, X_treino, X_val, y_treino, y_val, X_teste, y_teste):
+def selecionar_melhor_k(ks, X_treino, X_val, y_treino, y_val):
     
     acuracias_val = []
 
@@ -91,23 +138,20 @@ def selecionar_melhor_k(ks, X_treino, X_val, y_treino, y_val, X_teste, y_teste):
         knn = KNeighborsClassifier(n_neighbors=k)
         knn.fit(X_treino, y_treino)
         pred = knn.predict(X_val)
-        acuracias_val.append(f1_score(y_val, pred, average="macro"))
+        acuracias_val.append(f1_score(y_val, pred, average="macro", labels=np.unique(y_val)))
         
     melhor_val = max(acuracias_val)
     melhor_k = ks[np.argmax(acuracias_val)]
     
-    logging.info(f"Melhor k na validação: {melhor_k} (acc={melhor_val:.2f})")
-
-    knn_final = KNeighborsClassifier(n_neighbors=melhor_k)
-    knn_final.fit(np.vstack((X_treino, X_val)), [*y_treino, *y_val])
+    logging.info(f"Melhor k na validação: {melhor_k} (acc={melhor_val:.2f})")   
     
-    return knn_final, melhor_k, melhor_val
+    return melhor_k, melhor_val
 
 
 def exibir_resultados_matriz(y_true, y_proba, classes, ka):
     y_pred = classes[np.argmax(y_proba, axis=1)]
     
-    f1 = f1_score(y_true, y_pred, average="macro")
+    f1 = f1_score(y_true, y_pred, average="macro", labels=np.unique(y_true))
     
     topk = top_k_accuracy_score(
         y_true,
@@ -119,7 +163,7 @@ def exibir_resultados_matriz(y_true, y_proba, classes, ka):
     logging.info(f"F1-score do KNN: {f1:.2f}")
     logging.info(f"Top-{ka} Accuracy: {topk:.2f}")
     
-def treinar_knn_com_validacao_cruzada(ka, n_splits, config: DatasetConfig):
+def treinar_knn_com_validacao_cruzada(ka, n_splits, rebalance, config: DatasetConfig):
     
     path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
     path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
@@ -168,7 +212,7 @@ def treinar_knn_com_validacao_cruzada(ka, n_splits, config: DatasetConfig):
 
             y_pred = classes[np.argmax(y_proba, axis=1)]
 
-            f1 = f1_score(y_true, y_pred, average="macro")
+            f1 = f1_score(y_true, y_pred, average="macro", labels=np.unique(y_true))
 
             topk = top_k_accuracy_score(
                 y_true,
@@ -183,14 +227,16 @@ def treinar_knn_com_validacao_cruzada(ka, n_splits, config: DatasetConfig):
 
             if os.path.exists(modelo_filename):
                 logging.info("Carregando modelo salvo...")
-                knn = carregar_objeto(modelo_filename)
-
-                ss = StandardScaler().fit(X_treino)
+                ckpt = carregar_objeto(modelo_filename)
+                knn_final = ckpt["model"]
+                ss = ckpt["scaler"]
+    
                 X_teste_scaled = ss.transform(X_teste)
 
             else:
                 logging.info("Treinando modelo...")
 
+                '''
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_treino,
                     y_treino,
@@ -199,42 +245,49 @@ def treinar_knn_com_validacao_cruzada(ka, n_splits, config: DatasetConfig):
                     shuffle=True,
                     random_state=10
                 )
+                '''
+                
+                gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=10)
+                
+                tr_idx, val_idx = next(gss.split(X_treino, y_treino, groups=fold_dict["groups_train"]))
+                
+                X_tr, X_val = X_treino.iloc[tr_idx], X_treino.iloc[val_idx]
+                y_tr, y_val = y_treino.iloc[tr_idx], y_treino.iloc[val_idx]
 
                 ss = StandardScaler().fit(X_tr)
 
-                X_tr = ss.transform(X_tr)
-                X_val = ss.transform(X_val)
+                X_tr_scaled = ss.transform(X_tr)
+                X_val_scaled = ss.transform(X_val)
                 X_teste_scaled = ss.transform(X_teste)
+                
+                melhor_k, _ = selecionar_melhor_k(range(1, 30, 2), X_tr_scaled, X_val_scaled, y_tr, y_val) # seleção de hiperparametros FORA do rebalanceamento
+                
+                X_full = np.vstack((X_tr_scaled, X_val_scaled))
+                y_full = np.concatenate((y_tr.values, y_val.values)) # recombinar + balancear de novo para o modelo final
+                X_full_bal, y_full_bal = balancear(X_full, y_full, rebalance)
+                
+                knn_final = KNeighborsClassifier(n_neighbors=melhor_k)
+                knn_final.fit(X_full_bal, y_full_bal)
 
-                knn, _, _ = selecionar_melhor_k(
-                    range(1, 30, 2),
-                    X_tr,
-                    X_val,
-                    y_tr,
-                    y_val,
-                    X_teste_scaled,
-                    y_teste
-                )
+                salvar_objeto({"model": knn_final, "scaler": ss}, modelo_filename)
 
-                salvar_objeto(knn, modelo_filename)
+            y_pred = knn_final.predict(X_teste_scaled)
+            y_proba = knn_final.predict_proba(X_teste_scaled)
 
-            y_pred = knn.predict(X_teste_scaled)
-            y_proba = knn.predict_proba(X_teste_scaled)
-
-            f1 = f1_score(y_teste, y_pred, average="macro")
+            f1 = f1_score(y_teste, y_pred, average="macro", labels=np.unique(y_teste))
 
             topk = top_k_accuracy_score(
                 y_teste,
                 y_proba,
                 k=ka,
-                labels=knn.classes_
+                labels=knn_final.classes_
             )
 
             salvar_objeto({
                 "fold": foldId,
                 "y_true": y_teste.values,
                 "y_proba": y_proba,
-                "classes": knn.classes_
+                "classes": knn_final.classes_
             }, matriz_filename)
 
             logging.info("Matriz salva.")
@@ -258,9 +311,8 @@ def main():
     # Seleção do dataset
     print("Selecione o tipo de dataset:")
     print("1 - Segmentado")
-    print("2 - Completo")
     
-    opcoes = {"1": "segmentado", "2": "completo"}
+    opcoes = {"1": "segmentado"}
     tipo = opcoes.get(input("Digite sua escolha: ").strip())
     
     if tipo is None:
@@ -268,16 +320,24 @@ def main():
         return
 
     config = DATASET_CONFIGS[tipo]
+    estrategia = REBALANCE
+    
+    print("\n##########################\n")
+    print(f"VERSÃO       = {DATA_VERSION}")
+    print(f"Tipo         = {tipo}")
+    print(f"Top-K        = {ka}")
+    print(f"Estratégia(s) = {estrategia}")
+    print("\n##########################\n")
     
     resultados = {}
     
     for n_splits in CV_SPLITS:
         
-        logging.info(f"EXPERIMENTO {n_splits}-FOLD")
+        logging.info(f"EXPERIMENTO {n_splits}-FOLD | estratégia = {estrategia}")
         
         inicio_experimento = datetime.now()
         
-        acuracias, topKAcuracias = treinar_knn_com_validacao_cruzada(ka, n_splits, config)
+        acuracias, topKAcuracias = treinar_knn_com_validacao_cruzada(ka, n_splits, estrategia, config)
         
         final_experimento = datetime.now()
         
@@ -286,7 +346,7 @@ def main():
             "topk": topKAcuracias
         }
         
-        logging.info(f"Tempo de Experimento - {n_splits} FOLD = {final_experimento - inicio_experimento}")
+        logging.info(f"Tempo de Experimento - {n_splits} FOLD [{estrategia}] = {final_experimento - inicio_experimento}")
     
         #print(f"\n-- TESTE {config.nome.upper()} ({n_splits}-FOLD)--")
         #print("F1-Score Macro:")

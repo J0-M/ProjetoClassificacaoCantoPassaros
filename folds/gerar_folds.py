@@ -82,8 +82,10 @@ def gerar_folds(df, output_path, n_splits):
             "fold": fold_id,
             "X_train": X.iloc[train_idx].copy(),
             "y_train": y.iloc[train_idx].copy(),
+            "groups_train": groups.iloc[train_idx].copy(),
             "X_test": X.iloc[test_idx].copy(),
-            "y_test": y.iloc[test_idx].copy()
+            "y_test": y.iloc[test_idx].copy(),
+            "groups_test": groups.iloc[test_idx].copy(),
         })
 
     salvar_objeto(folds, output_path)
@@ -161,23 +163,15 @@ def main():
 
     print(f"== VERSÃO: {DATA_VERSION} ==")
 
-    modo = input("1 - Folds estratificados (v4)\n2 - Folds a partir de novo_filtro (txts)\nEscolha: ").strip()
     tipo = input("1 - Segmentado\n2 - Completo\nEscolha: ").strip()
     tipo = {"1": "segmentado", "2": "completo"}[tipo]
 
     df_path = f"../dataframes/{DATA_VERSION}/dataframe{'Segmentado' if tipo == 'segmentado' else 'AudioCompleto'}.pkl"
     df = pickle.load(open(df_path, "rb"))
 
-    if modo == "1":
-        for n_splits in CV_SPLITS:
-            output_path = f"{DATA_VERSION}/{tipo}/stratified_group_kfold_{n_splits}.pkl"
-            gerar_folds(df, output_path, n_splits)
-
-    elif modo == "2":
-        for n_splits in CV_SPLITS:
-            input_path  = f"novo_filtro/k-{n_splits}"
-            output_path = f"novo_filtro/{tipo}/stratified_group_kfold_{n_splits}.pkl"
-            gerar_folds_novo_filtro(df, input_path, output_path, n_splits)
+    for n_splits in CV_SPLITS:
+        output_path = f"{DATA_VERSION}/{tipo}/stratified_group_kfold_{n_splits}.pkl"
+        gerar_folds(df, output_path, n_splits)
 
     print("Folds salvos com sucesso!")
 

@@ -93,7 +93,6 @@ def split_train_val(X, y):
 ################################
 
 def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
-    
     centroides = []
     labels = []
     slices = {}
@@ -165,13 +164,10 @@ def selecionar_svm(Cs, gammas, X_tr, X_val, y_tr, y_val):
 
     logging.info(f"SVM: C={C}, gamma={g}, F1={scores[best]:.3f}")
 
-    svm = SVC(C=C, gamma=g, probability=True, cache_size=1000)
-    svm.fit(np.vstack([X_tr, X_val]), np.concatenate([y_tr, y_val]))
+    return C, g, scores
 
-    return svm
 
 def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
-    
     path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
     path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
                 
@@ -257,32 +253,36 @@ def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
 
                 melhor_f1 = -1
                 melhor_k = None
-                melhor_svm = None
                 
                 for k in k_values:
 
                     X_tr_k = extrair_features_por_k(X_tr_dist, modelo_kmeans, k)
                     X_val_k = extrair_features_por_k(X_val_dist, modelo_kmeans, k)
 
-                    svm = selecionar_svm(Cs, gammas, X_tr_k, X_val_k, y_train, y_val)
-                    
-                    pred = svm.predict(X_val_k)
-                    f1_val = f1_score(y_val, pred, average="macro")
+                    C, g, f1_val = selecionar_svm(Cs, gammas, X_tr_k, X_val_k, y_train, y_val)
+                    logging.info(f"[Fold {foldId+1}] k={k:>3} | C={C} | gamma={g} | F1_val={f1_val:.3f}")
 
                     if f1_val > melhor_f1:
                         melhor_f1 = f1_val
                         melhor_k = k
-                        melhor_svm = svm
+                        melhor_params = (C, g)
                 
-                svm = melhor_svm
-                k = melhor_k
+                C, g = melhor_params
+                
+                X_tr_k  = extrair_features_por_k(X_tr_dist,  modelo_kmeans, melhor_k)
+                X_val_k = extrair_features_por_k(X_val_dist, modelo_kmeans, melhor_k)
+
+                svm = SVC(C=C, gamma=g, probability=True, cache_size=1000)
+                svm.fit(np.vstack([X_tr_k, X_val_k]), np.concatenate([np.asarray(y_train), np.asarray(y_val)]),)
+                
+                k_escolhido = melhor_k
                 
                 salvar_objeto({
                     "kmeans": modelo_kmeans,
                     "scaler_dist": scaler_dist,
                     "scaler_global": scaler_global,
-                    "svm": melhor_svm,
-                    "k": melhor_k
+                    "svm": svm,
+                    "k": k_escolhido
                 }, modelo_filename)
 
                 logging.info("Modelo salvo.")
