@@ -7,9 +7,12 @@ from datetime import datetime
 from dataclasses import dataclass
 
 from sklearn.cluster import KMeans
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score, pairwise_distances
+
+from collections import Counter
+from imblearn.over_sampling import SMOTE, RandomOverSampler
 
 CV_SPLITS = [5, 10]
 
@@ -33,6 +36,32 @@ if idx < 0 or idx >= len(versoes_validas):
 
 DATA_VERSION = versoes_validas[idx]
 
+estrategias_validas = ["none", "ros", "smote"]
+
+NOMES_ESTRATEGIAS = {
+    "none":  "Sem balanceamento (baseline)",
+    "ros":   "Random Oversampling",
+    "smote": "SMOTE (Synthetic Minority Over-sampling)",
+}
+
+print("\nSelecione a estratégia de balanceamento:")
+for i, e in enumerate(estrategias_validas, 1):
+    print(f"{i} - {e:<6s} ({NOMES_ESTRATEGIAS[e]})")
+
+entrada = input("Digite o número da estratégia desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(estrategias_validas):
+    logging.error("Estratégia inválida!")
+    exit()
+    
+REBALANCE = estrategias_validas[idx]
+
 ########## CONFIGURAÇÃO LOGGING #################
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -47,8 +76,8 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_nc_treinoSegmentado", # NEAREST-CENTROID
-        path_modelos=f"{DATA_VERSION}/modelos_kmeansc_nc_treinoSegmentado",
+        path_matrizes=f"{DATA_VERSION}/{REBALANCE}/matrizesProba_kmeansc_nc_treinoSegmentado", # NEAREST-CENTROID
+        path_modelos=f"{DATA_VERSION}/{REBALANCE}/modelos_kmeansc_nc_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
 }
@@ -67,35 +96,57 @@ def carregar_objeto(caminho):
 def preparar_pastas(*pastas):
     for pasta in pastas:
         os.makedirs(pasta, exist_ok=True)
+
+def balancear(X, y, strategy, random_state=10):
+    if strategy == "none":
+        return X, y
+
+    if strategy == "ros":
+        return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+
+    if strategy == "smote":
+        min_count = min(Counter(y).values())
+        k = min(5, min_count - 1)
         
+        if k < 1:
+            logging.warning(f"Classe minoritária tem {min_count} amostra(s); SMOTE inviável, usando ROS como fallback.")
+            return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+        
+        return SMOTE(random_state=random_state, k_neighbors=k).fit_resample(X, y)
+    
+    if strategy == "all":
+        raise ValueError("'all' não é uma estratégia de balanceamento; "
+                        "é uma opção de execução (use lista de estratégias).")
+
+    raise ValueError(f"Estratégia de balanceamento desconhecida: {strategy}")
+
+def calcular_metricas(y_true, y_proba, classes, ka):
+    y_pred = classes[np.argmax(y_proba, axis=1)]
+    
+    f1 = f1_score(y_true, y_pred, average="macro", labels=np.unique(y_true))
+    topk = top_k_accuracy_score(y_true, y_proba, k=ka, labels=classes)
+    
+    return f1, topk
         
 def selecionar_melhor_kmeans(k_values, X_treino, X_val, y_treino, y_val, ka):
 
     melhor_f1 = -1
     melhor_k = None
-    melhor_modelo = None
 
     for k in k_values:
 
         modelo = treinar_kmeansc(X_treino, y_treino, k)
-
-        f1, topk, _, _ = prever_kmeansc(
-            modelo,
-            X_val,
-            y_val,
-            ka
-        )
+        f1, _, _, _ = prever_kmeansc(modelo, X_val, y_val, ka)
 
         logging.info(f"k_por_classe={k} | F1 Val={f1:.2f}")
 
         if f1 > melhor_f1:
             melhor_f1 = f1
             melhor_k = k
-            melhor_modelo = modelo
 
     logging.info(f"Melhor k_por_classe: {melhor_k} | F1 Val: {melhor_f1:.2f}")
 
-    return melhor_modelo, melhor_k, melhor_f1
+    return melhor_k, melhor_f1
       
 def treinar_kmeansc(X_treino, y_treino, k_por_classe=2):
     
@@ -158,9 +209,7 @@ def prever_kmeansc(modelo, X_teste, y_teste, ka):
     X_teste = scaler.transform(X_teste)
     
     distancias = pairwise_distances(X_teste, centroides, metric="euclidean")
-    
     idx_sorted = np.argsort(distancias, axis=1) #ordenar centroides por distancia (menor p maior)
-    
     y_pred = labels_centroides[idx_sorted[:, 0]]
     
     ## conversão centroide para classe
@@ -176,25 +225,16 @@ def prever_kmeansc(modelo, X_teste, y_teste, ka):
     
     ####################
     
-    f1 = f1_score(y_teste, y_pred, average="macro")
-    
-    classes_treino = np.unique(labels_centroides)
-
-    topk = top_k_accuracy_score(
-        y_teste,
-        y_proba_classes,
-        k=ka,
-        labels=classes_treino
-    )
+    f1, topk = calcular_metricas(y_teste, y_proba_classes, classes, ka)
     
     return f1, topk, y_pred, y_proba_classes
 
-def do_cv_kmeansc(ka, n_splits, config: DatasetConfig, k_values):
+def do_cv_kmeansc(ka, n_splits, config, k_values):
     
     path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
     path_modelos = os.path.join(config.path_modelos, f"{n_splits}fold")
     
-    preparar_pastas(config.path_matrizes, config.path_modelos)
+    preparar_pastas(path_matrizes, path_modelos)
     
     path_folds = os.path.join(config.path_folds, f"stratified_group_kfold_{n_splits}.pkl")
 
@@ -224,7 +264,7 @@ def do_cv_kmeansc(ka, n_splits, config: DatasetConfig, k_values):
         logging.info(f"\n=== {n_splits}-FOLD | Fold {foldId + 1} ===")
         
         matriz_filename = os.path.join(path_matrizes, f"matriz_{foldId + 1}.pkl")
-        modelo_filename = os.path.join(path_modelos, f"KNN_model_fold_{foldId + 1}.pkl")
+        modelo_filename = os.path.join(path_modelos, f"kmeansc_model_fold_{foldId + 1}.pkl")
         
 
         if os.path.exists(matriz_filename):
@@ -232,24 +272,13 @@ def do_cv_kmeansc(ka, n_splits, config: DatasetConfig, k_values):
 
             matriz = carregar_objeto(matriz_filename)
 
-            y_true = matriz["y_true"]
+            y_eval = matriz["y_true"]
             y_proba = matriz["y_proba"]
             classes = matriz["classes"]
             
-            print("Classes fora do modelo:", set(y_true) - set(classes))
+            logging.info("Classes fora do modelo:", set(y_eval) - set(classes))
 
-            # reconstruir predição
-            y_pred = classes[np.argmax(y_proba, axis=1)]
-
-            # métricas
-            f1 = f1_score(y_true, y_pred, average="macro")
-            
-            topk = top_k_accuracy_score(
-                y_true,
-                y_proba,
-                k=ka,
-                labels=classes
-            )
+            f1, topk = calcular_metricas(y_eval, y_proba, classes, ka)
 
         else:
 
@@ -259,7 +288,8 @@ def do_cv_kmeansc(ka, n_splits, config: DatasetConfig, k_values):
 
             else:
                 logging.info(f"Treinando modelo {foldId + 1}...")
-
+                
+                '''
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_treino,
                     y_treino,
@@ -267,15 +297,27 @@ def do_cv_kmeansc(ka, n_splits, config: DatasetConfig, k_values):
                     test_size=0.2,
                     random_state=1
                 )
+                '''
+                gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=10)
+                tr_idx, val_idx = next(gss.split(X_treino, y_treino, groups=fold_dict["groups_train"]))
                 
-                modelo, melhor_k, _ = selecionar_melhor_kmeans(
+                X_tr, X_val = X_treino.iloc[tr_idx].values, X_treino.iloc[val_idx].values
+                y_tr, y_val = y_treino.iloc[tr_idx].values, y_treino.iloc[val_idx].values
+                
+                melhor_k, _ = selecionar_melhor_kmeans(
                     k_values,
-                    X_tr.values,
-                    X_val.values,
-                    y_tr.values,
-                    y_val.values,
+                    X_tr,
+                    X_val,
+                    y_tr,
+                    y_val,
                     ka
                 )
+                
+                X_full = np.vstack((X_tr, X_val))
+                y_full = np.concatenate((y_tr, y_val))
+                X_full_bal, y_full_bal = balancear(X_full, y_full, REBALANCE)
+                
+                modelo = treinar_kmeansc(X_full_bal, y_full_bal, melhor_k)
                 
                 salvar_objeto(modelo, modelo_filename)
                 logging.info("Modelo salvo.")

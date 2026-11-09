@@ -248,7 +248,6 @@ def treinar_knn_com_validacao_cruzada(ka, n_splits, rebalance, config: DatasetCo
                 '''
                 
                 gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=10)
-                
                 tr_idx, val_idx = next(gss.split(X_treino, y_treino, groups=fold_dict["groups_train"]))
                 
                 X_tr, X_val = X_treino.iloc[tr_idx], X_treino.iloc[val_idx]
@@ -264,7 +263,7 @@ def treinar_knn_com_validacao_cruzada(ka, n_splits, rebalance, config: DatasetCo
                 
                 X_full = np.vstack((X_tr_scaled, X_val_scaled))
                 y_full = np.concatenate((y_tr.values, y_val.values)) # recombinar + balancear de novo para o modelo final
-                X_full_bal, y_full_bal = balancear(X_full, y_full, rebalance)
+                X_full_bal, y_full_bal = balancear(X_full, y_full, REBALANCE)
                 
                 knn_final = KNeighborsClassifier(n_neighbors=melhor_k)
                 knn_final.fit(X_full_bal, y_full_bal)

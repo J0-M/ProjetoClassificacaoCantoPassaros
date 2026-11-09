@@ -11,9 +11,12 @@ from joblib import Parallel, delayed
 
 from sklearn.cluster import KMeans
 from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score, classification_report
+
+from collections import Counter
+from imblearn.over_sampling import SMOTE, RandomOverSampler
 
 CV_SPLITS = [5, 10]
 
@@ -37,6 +40,32 @@ if idx < 0 or idx >= len(versoes_validas):
 
 DATA_VERSION = versoes_validas[idx]
 
+estrategias_validas = ["none", "ros", "smote"]
+
+NOMES_ESTRATEGIAS = {
+    "none":  "Sem balanceamento (baseline)",
+    "ros":   "Random Oversampling",
+    "smote": "SMOTE (Synthetic Minority Over-sampling)",
+}
+
+print("\nSelecione a estratégia de balanceamento:")
+for i, e in enumerate(estrategias_validas, 1):
+    print(f"{i} - {e:<6s} ({NOMES_ESTRATEGIAS[e]})")
+
+entrada = input("Digite o número da estratégia desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(estrategias_validas):
+    logging.error("Estratégia inválida!")
+    exit()
+    
+REBALANCE = estrategias_validas[idx]
+
 ########## CONFIGURAÇÃO LOGGING #################
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -51,8 +80,8 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_kmeansc_svm_treinoSegmentado",
-        path_modelos=f"{DATA_VERSION}/modelos_kmeansc_svm_treinoSegmentado",
+        path_matrizes=f"{DATA_VERSION}/{REBALANCE}/matrizesProba_kmeansc_svm_treinoSegmentado",
+        path_modelos=f"{DATA_VERSION}/{REBALANCE}/modelos_kmeansc_svm_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
 }
@@ -72,8 +101,31 @@ def preparar_pastas(*pastas):
     for pasta in pastas:
         os.makedirs(pasta, exist_ok=True)
         
+def balancear(X, y, strategy, random_state=10):
+    if strategy == "none":
+        return X, y
+
+    if strategy == "ros":
+        return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+
+    if strategy == "smote":
+        min_count = min(Counter(y).values())
+        k = min(5, min_count - 1)
+        
+        if k < 1:
+            logging.warning(f"Classe minoritária tem {min_count} amostra(s); SMOTE inviável, usando ROS como fallback.")
+            return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+        
+        return SMOTE(random_state=random_state, k_neighbors=k).fit_resample(X, y)
+    
+    if strategy == "all":
+        raise ValueError("'all' não é uma estratégia de balanceamento; "
+                        "é uma opção de execução (use lista de estratégias).")
+
+    raise ValueError(f"Estratégia de balanceamento desconhecida: {strategy}")
+        
 def calcular_metricas(y_true, y_pred, y_proba, classes, k):
-    f1 = f1_score(y_true, y_pred, average="macro")
+    f1 = f1_score(y_true, y_pred, average="macro", labels=np.unique(y_true))
 
     topk = top_k_accuracy_score(
         y_true,
@@ -83,13 +135,6 @@ def calcular_metricas(y_true, y_pred, y_proba, classes, k):
     )
 
     return f1, topk
-
-############################################
-# SPLIT
-############################################
-
-def split_train_val(X, y):
-    return train_test_split(X, y, test_size=0.2, stratify=y, shuffle=True, random_state=1)
     
 ################################
 
@@ -137,7 +182,7 @@ def selecionar_svm(Cs, gammas, X_tr, X_val, y_tr, y_val):
         svm = SVC(C=C, gamma=g, cache_size=1000)
         svm.fit(X_tr, y_tr)
         pred = svm.predict(X_val)
-        return f1_score(y_val, pred, average="macro")
+        return f1_score(y_val, pred, average="macro", labels=np.unique(y_val))
 
     comb = list(itertools.product(Cs, gammas))
 
@@ -150,10 +195,7 @@ def selecionar_svm(Cs, gammas, X_tr, X_val, y_tr, y_val):
 
     logging.info(f"SVM: C={C}, gamma={g}, F1={scores[best]:.3f}")
 
-    svm = SVC(C=C, gamma=g, probability=True, cache_size=1000)
-    svm.fit(X_tr, y_tr)
-
-    return svm
+    return C, g, scores[best]
 
 def do_cv_kmeansc_svm(ka, n_splits, config, k_values, Cs, gammas):
     
@@ -197,22 +239,13 @@ def do_cv_kmeansc_svm(ka, n_splits, config, k_values, Cs, gammas):
 
             matriz = carregar_objeto(matriz_filename)
 
-            y_true = matriz["y_true"]
+            y_eval = matriz["y_true"]
             y_proba = matriz["y_proba"]
             classes = matriz["classes"]
 
             y_pred = classes[np.argmax(y_proba, axis=1)]
-            
-            print(f"y_teste atual: {len(y_teste)}")
-            print(f"y_true salvo: {len(y_true)}")
-            print(f"y_proba salvo: {len(y_proba)}")
-            print(f"y_pred: {len(y_pred)}")
 
-            f1, topk = calcular_metricas(y_true, y_pred, y_proba, classes, ka)
-            
-            f1_report = classification_report(y_true, y_pred)
-            print(f"\n=== Classification Report Fold {foldId + 1} ===")
-            print(f1_report)
+            f1, topk = calcular_metricas(y_eval, y_pred, y_proba, classes, ka)
             
         else:
             
@@ -226,48 +259,55 @@ def do_cv_kmeansc_svm(ka, n_splits, config, k_values, Cs, gammas):
             else:
                 logging.info("Treinando modelo...")
             
-                X_train, X_val, y_train, y_val = split_train_val(X_treino, y_treino)
+                gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=10)
+                tr_idx, val_idx = next(gss.split(X_treino, y_treino, groups=fold_dict["groups_train"]))
+                
+                X_tr, X_val = X_treino.iloc[tr_idx], X_treino.iloc[val_idx]
+                y_tr, y_val = y_treino.iloc[tr_idx], y_treino.iloc[val_idx]
                 
                 scaler_global = StandardScaler()
-                X_train_scaled = scaler_global.fit_transform(X_train)
+                X_tr_scaled = scaler_global.fit_transform(X_tr)
                 X_val_scaled = scaler_global.transform(X_val)
 
-                melhor_f1 = -1
+                melhor_f1, melhor_k = -1, None
+                melhor_C, melhor_g = None, None
                 
                 for k in k_values:
                     
                     logging.info(f"Treinando com k={k}")
 
-                    modelo_kmeans = treinar_kmeansc(X_train_scaled, y_train, k)
+                    modelo_kmeans = treinar_kmeansc(X_tr_scaled, y_treino, k)
                     
                     X_proto = modelo_kmeans["centroides"]
                     y_proto = modelo_kmeans["labels"]
                     
-                    svm = selecionar_svm(Cs, gammas, X_proto, X_val_scaled, y_proto, y_val)
+                    C, g, f1_val = selecionar_svm(Cs, gammas, X_proto, X_val_scaled, y_proto, y_val)
                     
-                    pred = svm.predict(X_val_scaled)
-                    
-                    f1_val = f1_score(y_val, pred, average="macro")
-                    
-                    logging.info(f"k={k} -> F1={f1_val:.3f}")
+                    logging.info(f"k={k} | C={C}, gamma={g} | F1 Val={f1_val:.3f}")
                     
                     if f1_val > melhor_f1:
-
                         melhor_f1 = f1_val
-                        melhor_kmeans = (modelo_kmeans)
-                        melhor_svm = svm
-                        melhor_k = k
+                        melhor_k, melhor_C, melhor_g = k, C, g
                 
-                svm = melhor_svm
+                X_full = np.vstack((X_tr_scaled, X_val_scaled))
+                y_full = np.concatenate((y_tr, y_val))
+                X_full_bal, y_full_bal = balancear(X_full, y_full, REBALANCE)
+
+                modelo_kmeans_final = treinar_kmeansc(X_full_bal, y_full_bal, melhor_k)
+
+                svm = SVC(C=melhor_C, gamma=melhor_g, probability=True, cache_size=1000)
+                svm.fit(modelo_kmeans_final["centroides"], modelo_kmeans_final["labels"])
                 
                 salvar_objeto({
-                    "kmeans": melhor_kmeans,
+                    "kmeans": modelo_kmeans_final,
                     "scaler_global": scaler_global,
                     "svm": svm,
-                    "k": melhor_k
-                }, modelo_filename)
+                    "k": melhor_k,
+                    "C": melhor_C,
+                    "gamma": melhor_g,
+                }, modelo_filename) 
 
-                logging.info("Modelo salvo.")
+                logging.info(f"Modelo salvo (k={melhor_k}, C={melhor_C}, gamma={melhor_g}).")
             
             ## Teste
 

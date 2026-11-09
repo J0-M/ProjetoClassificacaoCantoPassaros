@@ -9,9 +9,12 @@ from dataclasses import dataclass
 from joblib import Parallel, delayed
 
 from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, top_k_accuracy_score
+
+from collections import Counter
+from imblearn.over_sampling import SMOTE, RandomOverSampler
 
 CV_SPLITS = [5, 10]
 
@@ -35,6 +38,32 @@ if idx < 0 or idx >= len(versoes_validas):
 
 DATA_VERSION = versoes_validas[idx]
 
+estrategias_validas = ["none", "ros", "smote"]
+
+NOMES_ESTRATEGIAS = {
+    "none":  "Sem balanceamento (baseline)",
+    "ros":   "Random Oversampling",
+    "smote": "SMOTE (Synthetic Minority Over-sampling)",
+}
+
+print("\nSelecione a estratégia de balanceamento:")
+for i, e in enumerate(estrategias_validas, 1):
+    print(f"{i} - {e:<6s} ({NOMES_ESTRATEGIAS[e]})")
+
+entrada = input("Digite o número da estratégia desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(estrategias_validas):
+    logging.error("Estratégia inválida!")
+    exit()
+    
+REBALANCE = estrategias_validas[idx]
+
 ########## CONFIGURAÇÃO LOGGING #################
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
@@ -48,15 +77,9 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_svm_treinoSegmentado",
-        path_modelos=f"{DATA_VERSION}/modelos_svm_treinoSegmentado",
+        path_matrizes=f"{DATA_VERSION}/{REBALANCE}/matrizesProba_svm_treinoSegmentado",
+        path_modelos=f"{DATA_VERSION}/{REBALANCE}/modelos_svm_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado"
-    ),
-    "completo": DatasetConfig(
-        nome="Áudios Completos",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_svm_treinoCompleto",
-        path_modelos=f"{DATA_VERSION}/modelos_svm_treinoCompleto",
-        path_folds=f"../folds/{DATA_VERSION}/completo"
     ),
 }
 
@@ -77,6 +100,28 @@ def preparar_pastas(*pastas):
     for pasta in pastas:
         os.makedirs(pasta, exist_ok=True)
 
+def balancear(X, y, strategy, random_state=10):
+    if strategy == "none":
+        return X, y
+
+    if strategy == "ros":
+        return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+
+    if strategy == "smote":
+        min_count = min(Counter(y).values())
+        k = min(5, min_count - 1)
+        
+        if k < 1:
+            logging.warning(f"Classe minoritária tem {min_count} amostra(s); SMOTE inviável, usando ROS como fallback.")
+            return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+        
+        return SMOTE(random_state=random_state, k_neighbors=k).fit_resample(X, y)
+    
+    if strategy == "all":
+        raise ValueError("'all' não é uma estratégia de balanceamento; "
+                        "é uma opção de execução (use lista de estratégias).")
+
+    raise ValueError(f"Estratégia de balanceamento desconhecida: {strategy}")
 
 #################################################
 
@@ -84,18 +129,18 @@ def preparar_pastas(*pastas):
 def selecionar_melhor_svm(Cs, gammas, X_treino : np.ndarray, X_val : np.ndarray, 
                           y_treino : np.ndarray, y_val : np.ndarray, n_jobs=4):
     
-    def treinar_svm(C, gamma, X_treino, X_val, y_treino, y_val):
+    def treinar_svm(C, gamma):
         svm = SVC(C=C, gamma=gamma)
         svm.fit(X_treino, y_treino)
         pred = svm.predict(X_val) 
-        return f1_score(y_val, pred, average="macro")
+        return f1_score(y_val, pred, average="macro", labels=np.unique(y_val))
     
     # Gera todas as combinações de parâmetros C e gamma
     combinacoes_parametros = list(itertools.product(Cs, gammas))
     
     # Treinar modelos com todas as combinações de C e gamma
     acuracias_val = Parallel(n_jobs=n_jobs)(delayed(treinar_svm)
-                                       (c, g, X_treino, X_val, y_treino, y_val) for c, g in combinacoes_parametros)       
+                                       (c, g) for c, g in combinacoes_parametros)       
     
     # Encontrar a combinação que levou ao melhor resultado no conjunto de validação
     melhor_val = max(acuracias_val)
@@ -106,10 +151,10 @@ def selecionar_melhor_svm(Cs, gammas, X_treino : np.ndarray, X_val : np.ndarray,
     logging.info(f"Melhor SVM - C: {melhor_c}, gamma: {melhor_gamma}, F1 Val: {melhor_val:.2f}")
     
     # Treinar uma SVM com todos os dados de treino e validação usando a melhor combinação de C e gamma
-    svm_final = SVC(C=melhor_c, gamma=melhor_gamma, probability=True)
-    svm_final.fit(np.vstack((X_treino, X_val)), [*y_treino, *y_val])
+    #svm_final = SVC(C=melhor_c, gamma=melhor_gamma, probability=True)
+    #svm_final.fit(np.vstack((X_treino, X_val)), [*y_treino, *y_val])
 
-    return svm_final, melhor_comb, melhor_val
+    return melhor_comb, melhor_val
 
 
 def do_cv_svm(ka, n_splits, config: DatasetConfig, Cs, gammas):
@@ -153,11 +198,11 @@ def do_cv_svm(ka, n_splits, config: DatasetConfig, Cs, gammas):
 
             matriz = carregar_objeto(matriz_filename)
 
-            y_true = matriz["y_true"]
+            y_eval = matriz["y_true"]
             y_proba = matriz["y_proba"]
             classes = matriz["classes"]
             
-            print("Classes fora do modelo:", set(y_true) - set(classes))
+            print("Classes fora do modelo:", set(y_eval) - set(classes))
 
             y_pred = classes[np.argmax(y_proba, axis=1)]
 
@@ -173,6 +218,7 @@ def do_cv_svm(ka, n_splits, config: DatasetConfig, Cs, gammas):
             else:
                 logging.info("Treinando modelo...")
 
+                '''
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_treino, 
                     y_treino,
@@ -181,16 +227,32 @@ def do_cv_svm(ka, n_splits, config: DatasetConfig, Cs, gammas):
                     shuffle=True,
                     random_state=1
                 )
+                '''
+                
+                gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=10)
+                tr_idx, val_idx = next(gss.split(X_treino, y_treino, groups=fold_dict["groups_train"]))
+                
+                X_tr, X_val = X_treino.iloc[tr_idx], X_treino.iloc[val_idx]
+                y_tr, y_val = y_treino.iloc[tr_idx], y_treino.iloc[val_idx]
 
                 scaler = StandardScaler()
-                X_tr = scaler.fit_transform(X_tr)
-                X_val = scaler.transform(X_val)
+                X_tr_scaled = scaler.fit_transform(X_tr)
+                X_val_scaled = scaler.transform(X_val)
 
-                svm, _, _ = selecionar_melhor_svm(
+                melhor_comb, _ = selecionar_melhor_svm(
                     Cs, gammas,
-                    X_tr, X_val,
+                    X_tr_scaled, X_val_scaled,
                     y_tr.values, y_val.values
                 )
+                
+                melhor_c, melhor_gamma = melhor_comb
+                
+                X_full = np.vstack((X_tr_scaled, X_val_scaled))
+                y_full = np.concatenate((y_tr.values, y_val.values))
+                X_full_bal, y_full_bal = balancear(X_full, y_full, REBALANCE)
+
+                svm = SVC(C=melhor_c, gamma=melhor_gamma, probability=True)
+                svm.fit(X_full_bal, y_full_bal)
 
                 salvar_objeto({
                     "svm": svm,
@@ -201,6 +263,7 @@ def do_cv_svm(ka, n_splits, config: DatasetConfig, Cs, gammas):
 
             X_test_scaled = scaler.transform(X_teste)
 
+            y_eval = y_teste.values
             y_pred = svm.predict(X_test_scaled)
             y_proba = svm.predict_proba(X_test_scaled)
             
@@ -208,17 +271,17 @@ def do_cv_svm(ka, n_splits, config: DatasetConfig, Cs, gammas):
 
             salvar_objeto({
                 "fold": foldId,
-                "y_true": y_teste.values,
+                "y_true": y_eval,
                 "y_proba": y_proba,
                 "classes": classes
             }, matriz_filename)
 
             logging.info("Matriz salva.")
 
-        f1 = f1_score(y_teste, y_pred, average="macro")
+        f1 = f1_score(y_eval, y_pred, average="macro", labels=np.unique(y_eval))
 
         topk = top_k_accuracy_score(
-            y_teste,
+            y_eval,
             y_proba,
             k=ka,
             labels=classes
@@ -239,9 +302,9 @@ def main():
     print(f"VERSÃO = {DATA_VERSION}")
     print(f"Top-K = {ka}")
     
-    logging.info("Selecione o tipo de dataset:\n1 - Segmentado\n2 - Completo")
+    logging.info("Selecione o tipo de dataset:\n1 - Segmentado")
     
-    opcoes = {"1": "segmentado", "2": "completo"}
+    opcoes = {"1": "segmentado"}
     tipo = opcoes.get(input("Digite sua escolha: ").strip())
     
     if tipo is None:

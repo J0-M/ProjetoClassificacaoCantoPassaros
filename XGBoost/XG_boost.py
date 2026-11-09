@@ -9,9 +9,12 @@ from dataclasses import dataclass
 from joblib import Parallel, delayed
 
 from xgboost import XGBClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import f1_score, top_k_accuracy_score
+
+from collections import Counter
+from imblearn.over_sampling import SMOTE, RandomOverSampler
 
 CV_SPLITS = [5, 10]
 
@@ -35,6 +38,31 @@ if idx < 0 or idx >= len(versoes_validas):
 
 DATA_VERSION = versoes_validas[idx]
 
+estrategias_validas = ["none", "ros", "smote"]
+
+NOMES_ESTRATEGIAS = {
+    "none":  "Sem balanceamento (baseline)",
+    "ros":   "Random Oversampling",
+    "smote": "SMOTE (Synthetic Minority Over-sampling)",
+}
+
+print("\nSelecione a estratégia de balanceamento:")
+for i, e in enumerate(estrategias_validas, 1):
+    print(f"{i} - {e:<6s} ({NOMES_ESTRATEGIAS[e]})")
+
+entrada = input("Digite o número da estratégia desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(estrategias_validas):
+    logging.error("Estratégia inválida!")
+    exit()
+    
+REBALANCE = estrategias_validas[idx]
 
 ########## CONFIGURAÇÃO LOGGING #################
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -49,16 +77,10 @@ class DatasetConfig:
 DATASET_CONFIGS = {
     "segmentado": DatasetConfig(
         nome="Áudios Segmentados",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_xgboost_treinoSegmentado",
-        path_modelos=f"{DATA_VERSION}/modelos_xgboost_treinoSegmentado",
+        path_matrizes=f"{DATA_VERSION}/{REBALANCE}/matrizesProba_xgboost_treinoSegmentado",
+        path_modelos=f"{DATA_VERSION}/{REBALANCE}/modelos_xgboost_treinoSegmentado",
         path_folds=f"../folds/{DATA_VERSION}/segmentado"
     ),
-    "completo": DatasetConfig(
-        nome="Áudios Completos",
-        path_matrizes=f"{DATA_VERSION}/matrizesProba_xgboost_treinoCompleto",
-        path_modelos=f"{DATA_VERSION}/modelos_xgboost_treinoCompleto",
-        path_folds=f"../folds/{DATA_VERSION}/completo"
-    )
 }
 
 #################################################
@@ -75,6 +97,29 @@ def carregar_objeto(caminho):
 def preparar_pastas(*pastas):
     for pasta in pastas:
         os.makedirs(pasta, exist_ok=True)
+
+def balancear(X, y, strategy, random_state=10):
+    if strategy == "none":
+        return X, y
+
+    if strategy == "ros":
+        return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+
+    if strategy == "smote":
+        min_count = min(Counter(y).values())
+        k = min(5, min_count - 1)
+        
+        if k < 1:
+            logging.warning(f"Classe minoritária tem {min_count} amostra(s); SMOTE inviável, usando ROS como fallback.")
+            return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+        
+        return SMOTE(random_state=random_state, k_neighbors=k).fit_resample(X, y)
+    
+    if strategy == "all":
+        raise ValueError("'all' não é uma estratégia de balanceamento; "
+                        "é uma opção de execução (use lista de estratégias).")
+
+    raise ValueError(f"Estratégia de balanceamento desconhecida: {strategy}")
 
 #################################################
 
@@ -102,47 +147,33 @@ def selecionar_melhor_xgboost(param_grid, X_train, X_val, y_train, y_val, num_cl
         logging.info(f"Best iteration: {model.best_iteration}")
         
         pred = model.predict(X_val)
-        return f1_score(y_val, pred, average="macro")
+        return f1_score(y_val, pred, average="macro", labels=np.unique(y_val)), int(model.best_iteration)
 
     combinacoes = list(itertools.product(*param_grid.values()))
     dicts_param = [dict(zip(param_grid.keys(), combo)) for combo in combinacoes]
 
-    scores = Parallel(n_jobs=n_jobs)(
+    resultados = Parallel(n_jobs=n_jobs)(
         delayed(treinar)(p) for p in dicts_param
     )
+    
+    scores = [r[0] for r in resultados]
+    iters  = [r[1] for r in resultados]
 
     best_idx = np.argmax(scores)
     best_params = dicts_param[best_idx]
+    best_iter = iters[best_idx]
     best_score = scores[best_idx]
 
-    logging.info(f"Melhor XGBoost: {best_params}, F1 Val: {best_score:.2f}")
+    logging.info(f"Melhor XGBoost: {best_params}, best_iter={best_iter}, F1 Val: {best_score:.2f}")
 
-    final_model = XGBClassifier(
-        objective="multi:softprob",
-        num_class=num_classes,
-        tree_method="hist",
-        #n_jobs=n_jobs,
-        n_jobs=1,
-        eval_metric="mlogloss",
-        n_estimators=300,
-        early_stopping_rounds=20,
-        **best_params
-    )
-
-    final_model.fit(
-        X_train, y_train,
-        eval_set=[(X_val, y_val)],
-        verbose=False
-    )
-
-    return final_model, best_params, best_score
+    return best_params, best_iter, best_score
 
 #################################################
 
 def calcular_metricas(y_true, y_proba, classes, ka):
     y_pred = classes[np.argmax(y_proba, axis=1)]
     
-    f1 = f1_score(y_true, y_pred, average="macro")
+    f1 = f1_score(y_true, y_pred, average="macro", labels=np.unique(y_true))
     
     topk = top_k_accuracy_score(
         y_true,
@@ -205,9 +236,6 @@ def do_cv_xgb(ka, n_splits, config, param_grid):
             classes = matriz["classes"]
             
             print("Classes fora do modelo:", set(y_true) - set(classes))
-
-            y_pred = classes[np.argmax(y_proba, axis=1)]
-
             f1, topk = calcular_metricas(y_true, y_proba, classes, ka)
             
         else:
@@ -225,6 +253,7 @@ def do_cv_xgb(ka, n_splits, config, param_grid):
 
                 logging.info("Treinando modelo...")
 
+                '''
                 X_tr, X_val, y_tr, y_val = train_test_split(
                     X_train,
                     y_train,
@@ -233,31 +262,49 @@ def do_cv_xgb(ka, n_splits, config, param_grid):
                     shuffle=True,
                     random_state=10
                 )
+                '''
+                
+                gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=10)
+                tr_idx, val_idx = next(gss.split(X_train, y_train, groups=fold_dict["groups_train"]))
+                
+                X_tr, X_val = X_train.iloc[tr_idx], X_train.iloc[val_idx]
+                y_tr, y_val = y_train.iloc[tr_idx], y_train.iloc[val_idx]
 
-                le = LabelEncoder()
-                y_tr = le.fit_transform(y_tr)
+                all_labels = sorted(set(y_train) | set(y_test))
+                le = LabelEncoder().fit(all_labels)
 
-                mask_val = y_val.isin(le.classes_)
-                X_val = X_val[mask_val]
-                y_val = y_val[mask_val]
-                y_val = le.transform(y_val)
+                y_tr_enc   = le.transform(y_tr)
+                y_val_enc  = le.transform(y_val)
+                y_test_encoded = le.transform(y_test)
 
+                ss = StandardScaler().fit(X_tr)
+                X_tr_scaled  = ss.transform(X_tr)
+                X_val_scaled = ss.transform(X_val)
+                X_test_scaled = ss.transform(X_test)
+                
                 num_classes = len(le.classes_)
-
-                ss = StandardScaler()
-                ss.fit(X_tr)
-
-                X_tr = ss.transform(X_tr)
-                X_val = ss.transform(X_val)
-
-                modelo, _, _ = selecionar_melhor_xgboost(
+                
+                best_params, best_iter, _ = selecionar_melhor_xgboost(
                     param_grid,
-                    X_tr,
-                    X_val,
-                    y_tr,
-                    y_val,
+                    X_tr_scaled, X_val_scaled,
+                    y_tr_enc, y_val_enc,
                     num_classes
                 )
+                
+                X_full = np.vstack((X_tr_scaled, X_val_scaled))
+                y_full = np.concatenate((y_tr_enc, y_val_enc))
+                X_full_bal, y_full_bal = balancear(X_full, y_full, REBALANCE)
+                
+                modelo = XGBClassifier(
+                    objective="multi:softprob",
+                    num_class=num_classes,
+                    tree_method="hist",
+                    n_jobs=1,
+                    eval_metric="mlogloss",
+                    n_estimators=best_iter,
+                    **best_params
+                )
+                modelo.fit(X_full_bal, y_full_bal)
 
                 salvar_objeto(
                     {
@@ -274,20 +321,12 @@ def do_cv_xgb(ka, n_splits, config, param_grid):
 
             X_test_scaled = ss.transform(X_test)
             y_proba = modelo.predict_proba(X_test_scaled)
-            
             classes = modelo.classes_
             
             y_test_encoded = le.transform(y_test)
             y_pred = classes[np.argmax(y_proba, axis=1)]
 
-            f1 = f1_score(y_test_encoded, y_pred, average="macro")
-
-            topk = top_k_accuracy_score(
-                y_test_encoded,
-                y_proba,
-                k=ka,
-                labels=classes
-            )
+            f1, topk = calcular_metricas(y_test_encoded, y_proba, classes, ka)
 
             salvar_objeto(
                 {
@@ -320,9 +359,9 @@ def main():
     print(f"VERSÃO = {DATA_VERSION}")
     print(f"Top-K = {ka}")
 
-    logging.info("Selecione o tipo de dataset:\n1 - Segmentado\n2 - Completo")
+    logging.info("Selecione o tipo de dataset:\n1 - Segmentado")
 
-    opcoes = {"1": "segmentado", "2": "completo"}
+    opcoes = {"1": "segmentado"}
     tipo = opcoes.get(input("Digite sua escolha (1-2): ").strip())
 
     if tipo is None:
