@@ -142,19 +142,21 @@ def calcular_metricas(y_true, y_pred, y_proba, classes, k):
 def gerar_distancias(X_scaled, centroides):
     return pairwise_distances(X_scaled, centroides, n_jobs=-1)
 
-def build_idxs(slices, k):
-    idxs = []
-    for _classe, (start, end) in slices.items():
-        usar = min(k, end - start)
-        idxs.extend(range(start, start + usar))
-        
-    return np.asarray(idxs, dtype=np.intp)
+def extrair_features_agregadas(X_dist, modelo_kmeans, k): # global average pooling sobre o eixo de centroides da classe (distancias para cada classe (n*k) -> min, avg, std (n*3))
+    n_amostras = X_dist.shape[0]
+    blocos = []
 
-def extrair_features(X_dist, idxs):
-    if idxs.size == X_dist.shape[1]:
-        return X_dist
-    
-    return X_dist[:, idxs]
+    for _classe, (start, end) in modelo_kmeans["slices"].items():
+        usar = min(k, end - start)
+        bloco = X_dist[:, start:start + usar]
+
+        f_min = bloco.min(axis=1)
+        f_mean = bloco.mean(axis=1)
+        f_std = bloco.std(axis=1) if usar > 1 else np.zeros(n_amostras, dtype=bloco.dtype)
+
+        blocos.extend([f_min, f_mean, f_std])
+
+    return np.column_stack(blocos)
 
 ############################################
 
@@ -196,14 +198,14 @@ def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
         "slices": slices,
     }
 
-def _avaliar_combo(k, C, g, X_tr_dist, X_val_dist, idxs_k, y_tr, y_val, labels_val):
-    X_tr_k = extrair_features(X_tr_dist, idxs_k)
-    X_val_k = extrair_features(X_val_dist, idxs_k)
-    
+def _avaliar_combo(k, C, g, X_tr_dist, X_val_dist, modelo_kmeans, y_tr, y_val, labels_val):
+    X_tr_k = extrair_features_agregadas(X_tr_dist, modelo_kmeans, k)
+    X_val_k = extrair_features_agregadas(X_val_dist, modelo_kmeans, k)
+
     svm = SVC(C=C, gamma=g, cache_size=1000)
     svm.fit(X_tr_k, y_tr)
     pred = svm.predict(X_val_k)
-    
+
     return f1_score(y_val, pred, average="macro", labels=labels_val)
 
 def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
@@ -297,7 +299,6 @@ def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
                 X_tr_dist = scaler_dist.fit_transform(X_tr_dist)
                 X_val_dist = scaler_dist.transform(X_val_dist)
 
-                idxs_por_k = {k: build_idxs(modelo_kmeans["slices"], k) for k in k_values}
                 labels_val = np.unique(y_val)
                 
                 combos = [(k, C, g) for k in k_values for C in Cs for g in gammas]
@@ -306,7 +307,7 @@ def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
                     delayed(_avaliar_combo)(
                         k, C, g,
                         X_tr_dist, X_val_dist,
-                        idxs_por_k[k],
+                        modelo_kmeans,
                         y_tr, y_val, labels_val,
                     )
                     for k, C, g in combos
@@ -327,7 +328,7 @@ def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
                 y_full = np.concatenate((y_tr, y_val))
                 X_full_bal, y_full_bal = balancear(X_full_dist, y_full, REBALANCE)
 
-                X_full_k = extrair_features(X_full_bal, idxs_por_k[k_escolhido])
+                X_full_k = extrair_features_agregadas(X_full_bal, modelo_kmeans, k_escolhido)
 
                 svm = SVC(C=C, gamma=g, probability=True, cache_size=1000)
                 svm.fit(X_full_k, y_full_bal)
@@ -352,8 +353,7 @@ def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
             X_teste_dist = gerar_distancias(X_teste_scaled, modelo_kmeans["centroides"])
             X_teste_dist = scaler_dist.transform(X_teste_dist)
 
-            idxs_teste = build_idxs(modelo_kmeans["slices"], k_escolhido)
-            X_teste_k = extrair_features(X_teste_dist, idxs_teste)
+            X_teste_k = extrair_features_agregadas(X_teste_dist, modelo_kmeans, k_escolhido)
 
             y_pred = svm.predict(X_teste_k)
             y_proba = svm.predict_proba(X_teste_k)
