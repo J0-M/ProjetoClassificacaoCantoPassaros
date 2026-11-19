@@ -113,12 +113,6 @@ def balancear(X, y, strategy, random_state=10):
             return RandomOverSampler(random_state=random_state).fit_resample(X, y)
         
         return SMOTE(random_state=random_state, k_neighbors=k).fit_resample(X, y)
-    
-    if strategy == "all":
-        raise ValueError("'all' não é uma estratégia de balanceamento; "
-                        "é uma opção de execução (use lista de estratégias).")
-
-    raise ValueError(f"Estratégia de balanceamento desconhecida: {strategy}")
 
 def calcular_metricas(y_true, y_proba, classes, ka):
     y_pred = classes[np.argmax(y_proba, axis=1)]

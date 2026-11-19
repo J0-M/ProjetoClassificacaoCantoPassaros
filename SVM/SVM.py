@@ -116,10 +116,6 @@ def balancear(X, y, strategy, random_state=10):
             return RandomOverSampler(random_state=random_state).fit_resample(X, y)
         
         return SMOTE(random_state=random_state, k_neighbors=k).fit_resample(X, y)
-    
-    if strategy == "all":
-        raise ValueError("'all' não é uma estratégia de balanceamento; "
-                        "é uma opção de execução (use lista de estratégias).")
 
     raise ValueError(f"Estratégia de balanceamento desconhecida: {strategy}")
 
