@@ -87,6 +87,9 @@ DATASET_CONFIGS = {
 
 ########## FUNÇÕES UTILITÁRIAS ##################
 
+def to_numpy(X):
+    return X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
+
 def salvar_objeto(obj, caminho):
     os.makedirs(os.path.dirname(caminho), exist_ok=True)
     with open(caminho, "wb") as f:
@@ -131,82 +134,77 @@ def calcular_metricas(y_true, y_pred, y_proba, classes, k):
 
     return f1, topk
     
-################################
-
-def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
-    centroides = []
-    labels = []
-    slices = {}
-    start = 0
-    
-    classes = np.unique(y_treino)
-    
-    for classe in classes:
-        X_classe = X_treino_scaled[y_treino == classe]
-        n_amostras = len(X_classe)
-        
-        k = min(len(X_classe), k_max)
-        
-        if k == n_amostras:
-            c = X_classe
-        else:
-            kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto")
-            kmeans.fit(X_classe)
-            c = kmeans.cluster_centers_
-
-        end = start + len(c)
-
-        centroides.append(c)
-        labels.extend([classe] * len(c))
-        slices[classe] = (start, end)
-
-        start = end
-    
-    return {
-        "centroides": np.vstack(centroides),
-        "labels": np.array(labels),
-        "slices": slices
-    }
 
 ############################################
 # FEATURE EXTRACTION
 ############################################
 
 def gerar_distancias(X_scaled, centroides):
-    # return pairwise_distances(X_scaled, centroides, n_jobs=4)
-    return pairwise_distances(X_scaled, centroides)
+    return pairwise_distances(X_scaled, centroides, n_jobs=-1)
 
-def extrair_features_por_k(X, modelo_kmeans, k):
+def build_idxs(slices, k):
     idxs = []
-    for classe, (start, end) in modelo_kmeans["slices"].items():
-        tamanho = end - start
-        usar = min(k, tamanho)
+    for _classe, (start, end) in slices.items():
+        usar = min(k, end - start)
         idxs.extend(range(start, start + usar))
-    return X[:, idxs]
+        
+    return np.asarray(idxs, dtype=np.intp)
+
+def extrair_features(X_dist, idxs):
+    if idxs.size == X_dist.shape[1]:
+        return X_dist
+    
+    return X_dist[:, idxs]
 
 ############################################
 
-def selecionar_svm(Cs, gammas, X_tr, X_val, y_tr, y_val):
+def _fit_classe_kmeans(classe, X_scaled, y_arr, k_max):
+    X_classe = X_scaled[y_arr == classe]
+    n_amostras = len(X_classe)
+    k = min(n_amostras, k_max)
+    
+    if k == n_amostras:
+        return X_classe, classe
+    
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto")
+    kmeans.fit(X_classe)
+    
+    return kmeans.cluster_centers_, classe
 
-    def treino(C, g):
-        svm = SVC(C=C, gamma=g, cache_size=1000)
-        svm.fit(X_tr, y_tr)
-        pred = svm.predict(X_val)
-        return f1_score(y_val, pred, average="macro", labels=np.unique(y_val))
+def treinar_kmeansc(X_treino_scaled, y_treino, k_max):
+    y_arr = np.asarray(y_treino)
+    classes = np.unique(y_arr)
 
-    comb = list(itertools.product(Cs, gammas))
-
-    scores = Parallel(n_jobs=4)(
-        delayed(treino)(c, g) for c, g in comb
+    resultados = Parallel(n_jobs=-1)(
+        delayed(_fit_classe_kmeans)(c, X_treino_scaled, y_arr, k_max)
+        for c in classes
     )
 
-    best = np.argmax(scores)
-    C, g = comb[best]
+    centroides, labels, slices = [], [], {}
+    start = 0
+    
+    for c_cent, classe in resultados:
+        end = start + len(c_cent)
+        centroides.append(c_cent)
+        labels.extend([classe] * len(c_cent))
+        slices[classe] = (start, end)
+        start = end
 
-    logging.info(f"SVM: C={C}, gamma={g}, F1={scores[best]:.3f}")
+    return {
+        "centroides": np.vstack(centroides),
+        "labels": np.array(labels),
+        "slices": slices,
+    }
 
-    return C, g, scores[best]
-
+def _avaliar_combo(k, C, g, X_tr_dist, X_val_dist, idxs_k, y_tr, y_val, labels_val):
+    X_tr_k = extrair_features(X_tr_dist, idxs_k)
+    X_val_k = extrair_features(X_val_dist, idxs_k)
+    
+    svm = SVC(C=C, gamma=g, cache_size=1000)
+    svm.fit(X_tr_k, y_tr)
+    pred = svm.predict(X_val_k)
+    
+    return f1_score(y_val, pred, average="macro", labels=labels_val)
 
 def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
     path_matrizes = os.path.join(config.path_matrizes, f"{n_splits}fold")
@@ -275,12 +273,15 @@ def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
             
             else:
                 logging.info("Treinando modelo...")
+                
+                X_treino_np = to_numpy(X_treino)
+                y_treino_arr = np.asarray(y_treino)
             
                 gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=10)
-                tr_idx, val_idx = next(gss.split(X_treino, y_treino, groups=fold_dict["groups_train"]))
+                tr_idx, val_idx = next(gss.split(X_treino_np, y_treino_arr, groups=fold_dict["groups_train"]))
                 
-                X_tr, X_val = X_treino.iloc[tr_idx], X_treino.iloc[val_idx]
-                y_tr, y_val = y_treino.iloc[tr_idx], y_treino.iloc[val_idx]
+                X_tr, X_val = X_treino_np[tr_idx], X_treino_np[val_idx]
+                y_tr, y_val = y_treino_arr[tr_idx], y_treino_arr[val_idx]
                 
                 scaler_global = StandardScaler()
                 X_train_scaled = scaler_global.fit_transform(X_tr)
@@ -296,66 +297,72 @@ def do_cv_kmeansd(ka, n_splits, config, k_values, Cs, gammas):
                 X_tr_dist = scaler_dist.fit_transform(X_tr_dist)
                 X_val_dist = scaler_dist.transform(X_val_dist)
 
-                melhor_f1 = -1
-                melhor_k = None
-                melhor_params = None
+                idxs_por_k = {k: build_idxs(modelo_kmeans["slices"], k) for k in k_values}
+                labels_val = np.unique(y_val)
                 
-                for k in k_values:
+                combos = [(k, C, g) for k in k_values for C in Cs for g in gammas]
 
-                    X_tr_k = extrair_features_por_k(X_tr_dist, modelo_kmeans, k)
-                    X_val_k = extrair_features_por_k(X_val_dist, modelo_kmeans, k)
+                scores = Parallel(n_jobs=-1)(
+                    delayed(_avaliar_combo)(
+                        k, C, g,
+                        X_tr_dist, X_val_dist,
+                        idxs_por_k[k],
+                        y_tr, y_val, labels_val,
+                    )
+                    for k, C, g in combos
+                )
 
-                    C, g, f1_val = selecionar_svm(Cs, gammas, X_tr_k, X_val_k, y_tr, y_val)
-                    logging.info(f"[Fold {foldId+1}] k={k:>3} | C={C} | gamma={g} | F1_val={f1_val:.3f}")
+                for (k, C, g), score in zip(combos, scores):
+                    logging.info(f"[Fold {foldId+1}] k={k:>3} | C={C} | gamma={g} | F1_val={score:.3f}")
 
-                    if f1_val > melhor_f1:
-                        melhor_f1 = f1_val
-                        melhor_k = k
-                        melhor_params = (C, g)
+                best_idx = int(np.argmax(scores))
+                melhor_k, C, g = combos[best_idx]
+                melhor_f1 = scores[best_idx]
                 
-                C, g = melhor_params
+                logging.info(f"SVM final: k={melhor_k}, C={C}, gamma={g}, F1_val={melhor_f1:.3f}")
+                
                 k_escolhido = melhor_k
-                
+
                 X_full_dist = np.vstack((X_tr_dist, X_val_dist))
-                y_full      = np.concatenate((y_tr, y_val))
+                y_full = np.concatenate((y_tr, y_val))
                 X_full_bal, y_full_bal = balancear(X_full_dist, y_full, REBALANCE)
 
-                X_full_k = extrair_features_por_k(X_full_bal, modelo_kmeans, k_escolhido)
-                
+                X_full_k = extrair_features(X_full_bal, idxs_por_k[k_escolhido])
+
                 svm = SVC(C=C, gamma=g, probability=True, cache_size=1000)
                 svm.fit(X_full_k, y_full_bal)
-                
+
                 salvar_objeto({
                     "kmeans": modelo_kmeans,
                     "scaler_dist": scaler_dist,
                     "scaler_global": scaler_global,
                     "svm": svm,
-                    "best_params": melhor_params,
-                    "k": k_escolhido
+                    "best_params": (C, g),
+                    "k": k_escolhido,
                 }, modelo_filename)
 
                 logging.info("Modelo salvo.")
             
             ## Teste
 
-            X_teste_scaled = scaler_global.transform(X_teste)
+            X_teste_np = to_numpy(X_teste)
+            y_teste_arr = np.asarray(y_teste)
 
-            X_teste_dist = gerar_distancias(
-                X_teste_scaled,
-                modelo_kmeans["centroides"]
-            )
+            X_teste_scaled = scaler_global.transform(X_teste_np)
+            X_teste_dist = gerar_distancias(X_teste_scaled, modelo_kmeans["centroides"])
             X_teste_dist = scaler_dist.transform(X_teste_dist)
-            
-            X_teste_k = extrair_features_por_k(X_teste_dist, modelo_kmeans, k_escolhido)
+
+            idxs_teste = build_idxs(modelo_kmeans["slices"], k_escolhido)
+            X_teste_k = extrair_features(X_teste_dist, idxs_teste)
 
             y_pred = svm.predict(X_teste_k)
             y_proba = svm.predict_proba(X_teste_k)
 
-            f1, topk = calcular_metricas(y_teste, y_pred, y_proba, svm.classes_, ka)
+            f1, topk = calcular_metricas(y_teste_arr, y_pred, y_proba, svm.classes_, ka)
             
             salvar_objeto({
                 "fold": foldId,
-                "y_true": y_teste,
+                "y_true": y_teste_arr,
                 "y_proba": y_proba,
                 "classes": svm.classes_
             }, matriz_filename)
