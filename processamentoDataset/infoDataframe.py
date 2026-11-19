@@ -64,6 +64,11 @@ def dataInfo(dataframe):
         print(f"Quantidade de áudios: {quantidade_de_audios}")
         print(f"Quantidade de espécies de pássaros: {quantidade_de_especies}")
         print(f"Quantidade de colunas (features): {quantidade_de_features}")
+        if "audioSource" in dataframe.columns:
+            quantidade_de_audio_sources = dataframe["audioSource"].nunique()
+            print(f"Quantidade de audioSources diferentes: {quantidade_de_audio_sources}")
+        else:
+            print("Coluna 'audioSource' não encontrada no dataframe.")
     else:
         print("Dataframe não carregado corretamente!")
 
@@ -127,16 +132,106 @@ def main():
     print(f"Desvio padrão: {std_amostras:.2f}")
     print(f"Razão de desbalanceamento (max/min): {razao_desbalanceamento:.2f}")
 
-    
-    plt.figure(figsize=(10,6))
-    plt.hist(contagem_por_especie.values, bins=30, edgecolor="black")
+    '''
+    top_n = 15
+    top_especies = contagem_por_especie.head(top_n).copy()
+    demais_especies = contagem_por_especie.iloc[top_n:].sum()
 
-    plt.title("Distribuição de amostras por espécie")
-    plt.xlabel("Número de amostras por espécie")
-    plt.ylabel("Quantidade de espécies")
+    if demais_especies > 0:
+        dados_grafico = pd.concat([
+            top_especies,
+            pd.Series({"Demais espécies": demais_especies})
+        ])
+    else:
+        dados_grafico = top_especies
 
-    plt.grid(alpha=0.3)
+    # Ordenar para que as maiores barras fiquem no topo
+    dados_grafico = dados_grafico.sort_values(ascending=True)
+
+    cores = [
+        "#B8C7D9" if especie == "Demais espécies" else "#2878B5"
+        for especie in dados_grafico.index
+    ]
+
+    fig, ax = plt.subplots(figsize=(13, 10))
+
+    barras = ax.barh(
+        dados_grafico.index,
+        dados_grafico.values,
+        color=cores,
+        edgecolor="white"
+    )
+
+    # Quantidade e percentual por barra
+    for barra, quantidade in zip(barras, dados_grafico.values):
+        percentual = quantidade / len(dataframe) * 100
+
+        ax.text(
+            barra.get_width(),
+            barra.get_y() + barra.get_height() / 2,
+            f"  {quantidade:,} ({percentual:.1f}%)",
+            va="center",
+            fontsize=8
+        )
+
+    ax.set_title(
+        f"Desbalanceamento da base de dados — Top {top_n} espécies",
+        fontsize=15,
+        fontweight="bold",
+        pad=15
+    )
+
+    ax.set_xlabel("Número de amostras")
+    ax.set_ylabel("Espécie")
+
+    ax.grid(axis="x", linestyle="--", alpha=0.3)
+    ax.set_axisbelow(True)
+
+    maior_valor = dados_grafico.max()
+    ax.set_xlim(0, maior_valor * 1.25)
+
+    ax.tick_params(axis="y", labelsize=9)
+
+    plt.tight_layout()
     plt.show()
+    '''
+
+    valores = contagem_por_especie.values
+    mediana = npy.median(valores)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    ax.hist(
+        valores,
+        bins=30,
+        color="#2878B5",
+        edgecolor="white",
+        linewidth=0.8
+    )
+
+    ax.axvline(
+        mediana,
+        color="#D95F02",
+        linestyle="--",
+        linewidth=2,
+        label=f"Mediana: {mediana:.0f} amostras"
+    )
+
+    ax.set_title(
+        "Distribuição de amostras por espécie",
+        fontsize=14,
+        fontweight="bold"
+    )
+    ax.set_xlabel("Número de amostras por espécie")
+    ax.set_ylabel("Quantidade de espécies")
+
+    ax.set_yscale("linear")
+    ax.grid(axis="y", linestyle="--", alpha=0.3)
+    ax.legend()
+
+    plt.tight_layout()
+    plt.show()
+
     
     print(dataframe.head())
 
