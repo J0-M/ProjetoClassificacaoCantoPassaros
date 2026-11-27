@@ -1,5 +1,5 @@
 # **Classificação de Cantos de Pássaros**
-Este repositório contém o código-fonte e a metodologia para a classificação automatizada de espécies de pássaros utilizando características acústicas extraídas de seus cantos. O projeto compara o desempenho de diferentes algoritmos de aprendizado de máquina (SVM, KNN, XGBoost e K-Means), avaliando o impacto de diferentes versões de features e estratégias de balanceamento de classes.
+Este repositório contém o código-fonte e a metodologia para a classificação automatizada de espécies de pássaros utilizando características acústicas extraídas de seus cantos. O projeto compara o desempenho de diferentes algoritmos de aprendizado de máquina (SVM, KNN, XGBoost e K-Means), avaliando o impacto de diferentes versões de features e estratégias de balanceamento de classes. Com o uso de ```random_state``` é possível manter consistência entre os resultados e o pipeline.
 
 <!--
 Este trabalho foi desenvolvido como parte de um projeto científico e está documentado no artigo neste link: *(inserir link para o artigo aqui)*.
@@ -35,10 +35,10 @@ ProjetoClassificacaoCantoPassaros/
   ```
     
   2. *Dataset* Base
-    Você precisará baixar os dados da base conservaSOM (<!-- Link para o conservaSOM -->) e alocá-los na pasta ```data/```.
+    Você precisará baixar os dados da base conservaSOM e alocá-los na pasta ```data/```.
 
   3. Modelo *Perch v2*
-    Baixe o modelo ```perch_v2_no_dft.onnx``` (<!-- Link para o conservaSOM -->) e coloque na pasta ```processamentoDataset/features_perch```.
+    Baixe o modelo ```perch_v2_no_dft.onnx``` ([Link](https://huggingface.co/justinchuby/Perch-onnx/tree/da88bf8c37c0b3068fc706fe509f633b9fbd28c1)) e coloque na pasta ```processamentoDataset/features_perch```.
 
 ### 1. Extração de Features
 Você deve escolher qual versão de features deseja gerar primeiro. O script lerá os áudios, extrairá as características e salvará um ```dataframeSegmentado.pkl```.
@@ -78,11 +78,32 @@ O script salva automaticamente as matrizes de confusão/probabilidade e os model
 ## Funcionamento e Metodologia
 O fluxo de execução (explicado abaixo) é padronizado para os classificadores supervisionados, garantindo uma comparação justa.
 
-### 1. **Versões do *Dataset***
+### 1. **Versões do *Dataset* (Conjunto de Características)**
 O código permite selecionar diferentes conjuntos de features acústicas (```v1_media```, ```v2_media_std```, ```v3_media_std_freq```, ```v4_novas_features```, ```v6_perch```), permitindo avaliar qual conjunto é mais informativa para o modelo.
-   <!--
-    Incluir código de conjunto aqui 
-    -->
+
+```python
+CV_SPLITS = [5, 10]
+
+versoes_validas = ["v1_media", "v2_media_std", "v3_media_std_freq", "v4_novas_features", "v5_novo_filtro", "v6_perch"]
+
+print("Selecione a versão do dataset:")
+for i, v in enumerate(versoes_validas, 1):
+    print(f"{i} - {v}")
+
+entrada = input("Digite o número da versão desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(versoes_validas):
+    logging.error("Versão inválida!")
+    exit()
+
+DATA_VERSION = versoes_validas[idx]
+```
   
 ### 2. **Estratégias de Rebalanceamento**
 Como datasets de áudio geralmente possuem distribuição de classes desbalanceada, o pipeline permite escolher entre:
@@ -93,13 +114,81 @@ Como datasets de áudio geralmente possuem distribuição de classes desbalancea
 
 - ```smote``` (*Synthetic Minority Over-sampling Technique*): Geração de amostras sintéticas.
   - O código possui um fallback  para ROS caso a classe minoritária tenha menos de 5 amostras:
-    <!--
-    Incluir código de seleção de oversalmpling aqui 
-    -->
+```python
+DATA_VERSION = versoes_validas[idx]
+
+estrategias_validas = ["none", "ros", "smote"]
+
+NOMES_ESTRATEGIAS = {
+    "none":  "Sem balanceamento (baseline)",
+    "ros":   "Random Oversampling",
+    "smote": "SMOTE (Synthetic Minority Over-sampling)",
+}
+
+print("\nSelecione a estratégia de balanceamento:")
+for i, e in enumerate(estrategias_validas, 1):
+    print(f"{i} - {e:<6s} ({NOMES_ESTRATEGIAS[e]})")
+
+entrada = input("Digite o número da estratégia desejada: ").strip()
+
+if not entrada.isdigit():
+    logging.error("Entrada inválida! Digite um número.")
+    exit()
+
+idx = int(entrada) - 1
+
+if idx < 0 or idx >= len(estrategias_validas):
+    logging.error("Estratégia inválida!")
+    exit()
+    
+REBALANCE = estrategias_validas[idx]
+```
+```python
+def balancear(X, y, strategy, random_state=10):
+    if strategy == "none":
+        return X, y
+
+    if strategy == "ros":
+        return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+
+    if strategy == "smote":
+        min_count = min(Counter(y).values())
+        k = min(5, min_count - 1)
+        
+        if k < 1:
+            logging.warning(f"Classe minoritária tem {min_count} amostra(s); SMOTE inviável, usando ROS como fallback.")
+            return RandomOverSampler(random_state=random_state).fit_resample(X, y)
+        
+        return SMOTE(random_state=random_state, k_neighbors=k).fit_resample(X, y)
+```
 
 ### 3. **Estratificação por grupos**
 Para garantir que gravações do mesmo indivíduo ou do mesmo ambiente não estejam tanto no treino quanto no teste utilizamos o ```StratifiedGroupKFold``` agrupando pelas colunas audioSource, com ```GroupShuffleSplit``` sendo usado para separar os dados de treino e validação interna durante a busca de hiperparâmetros, mantendo a integridade dos grupos.
-<!-- trecho de codigo StratifiedGroupKFold e GrupShuffleSplit -->
+
+```python
+X = df.drop(columns=["roi_label", "audioSource"])
+    y = df["roi_label"]
+    groups = df["audioSource"]
+
+    skf = StratifiedGroupKFold(
+        n_splits=n_splits,
+        shuffle=True,
+        random_state=RANDOM_STATE
+    )
+
+    folds = []
+
+    for fold_id, (train_idx, test_idx) in enumerate(skf.split(X, y, groups)):
+    [...]
+```
+
+```python
+gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=10)
+tr_idx, val_idx = next(gss.split(X_treino, y_treino, groups=fold_dict["groups_train"]))
+
+X_tr, X_val = X_treino.iloc[tr_idx], X_treino.iloc[val_idx]
+y_tr, y_val = y_treino.iloc[tr_idx], y_treino.iloc[val_idx]
+```
 
 ## Resultados 
 Os modelos são avaliados utilizando F1-Score Macro para lidar com o desbalanceamento entre as espécies e Top-K Accuracy para verificar se a espécie correta está entre as K mais prováveis.
