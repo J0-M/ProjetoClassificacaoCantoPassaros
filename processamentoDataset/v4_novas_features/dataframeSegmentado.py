@@ -11,8 +11,8 @@ N_FFT = 1024
 
 DATA_VERSION = "v4_novas_features"
 
-audioSourcePath = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\wavs_20241104"
-pathCSV = "C:\\Users\\Pichau\\Desktop\\dados_RosaGLM_ConservaSom_20241104\\df_ROI_RosaGLM_ConservaSom_20241104.csv"
+audioSourcePath = "../data/dados_RosaGLM_ConservaSom_20241104/wavs_20241104"
+pathCSV = "../data/dados_RosaGLM_ConservaSom_20241104/df_ROI_RosaGLM_ConservaSom_20241104.csv"
 
 def cutAudio(audioPath, startTime, endTime):
     if pd.isna(startTime) or pd.isna(endTime):

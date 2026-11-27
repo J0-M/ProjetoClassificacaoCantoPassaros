@@ -13,8 +13,8 @@ from tqdm.auto import tqdm
 
 DATA_VERSION = "v6_perch"
 
-audioSourcePath = r"D:\Users\Joao\Downloads\dados_RosaGLM_ConservaSom_20241104\wavs_20241104"
-pathCSV         = r"D:\Users\Joao\Downloads\dados_RosaGLM_ConservaSom_20241104\df_ROI_RosaGLM_ConservaSom_20241104.csv"
+audioSourcePath = "../data/dados_RosaGLM_ConservaSom_20241104/wavs_20241104"
+pathCSV         = "../data/dados_RosaGLM_ConservaSom_20241104/df_ROI_RosaGLM_ConservaSom_20241104.csv"
 
 HERE = Path(__file__).resolve().parent
 PERCH_ONNX_PATH = HERE / "perch_v2_no_dft.onnx"

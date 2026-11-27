@@ -6,7 +6,6 @@ dataframes/v6_perch/*
 *.log
 *.csv
 *.pyc
-temp.py
 
 __pycache__/
 

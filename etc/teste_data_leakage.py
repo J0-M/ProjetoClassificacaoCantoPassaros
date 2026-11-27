@@ -161,8 +161,8 @@ def main():
 
     print("=== DIAGNÓSTICO DE LEAKAGE ===")
 
-    df_path = f"dataframes/{DATA_VERSION}/dataframeSegmentado.pkl"
-    folds_path = f"folds/{DATA_VERSION}/{TIPO}/stratified_group_kfold_10.pkl"
+    df_path = f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl"
+    folds_path = f"../folds/{DATA_VERSION}/{TIPO}/stratified_group_kfold_10.pkl"
 
     df = carregar(df_path)
     folds = carregar(folds_path)

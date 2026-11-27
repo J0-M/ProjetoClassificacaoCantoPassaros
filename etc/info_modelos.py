@@ -26,7 +26,7 @@ if idx < 0 or idx >= len(versoes_validas):
 
 DATA_VERSION = versoes_validas[idx]
 
-PATH_MODELOS = f"KMeansC_XGBoost/{DATA_VERSION}/modelos_kmeansc_xgboost_treinoSegmentado" # KMEANSC_XGBOOST
+PATH_MODELOS = f"../KMeansC_XGBoost/{DATA_VERSION}/modelos_kmeansc_xgboost_treinoSegmentado" # KMEANSC_XGBOOST
 
 #########################################################
 # UTILITÁRIOS

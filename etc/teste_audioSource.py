@@ -104,7 +104,7 @@ def analisar_audio_source(df):
 
 def main():
 
-    df_path = f"dataframes/{DATA_VERSION}/dataframeSegmentado.pkl"
+    df_path = f"../dataframes/{DATA_VERSION}/dataframeSegmentado.pkl"
 
     df = carregar(df_path)
 
