@@ -272,7 +272,7 @@ def do_cv_kmeansc_svm(ka, n_splits, config, k_values, Cs, gammas):
                     
                     logging.info(f"Treinando com k={k}")
 
-                    modelo_kmeans = treinar_kmeansc(X_tr_scaled, y_treino, k)
+                    modelo_kmeans = treinar_kmeansc(X_tr_scaled, y_tr, k)
                     
                     X_proto = modelo_kmeans["centroides"]
                     y_proto = modelo_kmeans["labels"]
