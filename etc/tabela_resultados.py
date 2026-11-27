@@ -15,8 +15,12 @@ CLASSIFIERS = {
     "KMeansC_SVM": "kmeansc_svm",
     "KMeansD": "kmeansd"
 }
+BALANCEAMENTOS = ["none", "ros", "smote"]
 N_SPLITS = [5, 10]
 TOP_K = 5   # altere se necessário
+
+# Controle para não floodar o terminal com o mesmo erro do Pandas
+_erros_ja_impressos = set()
 
 def carregar_objeto(caminho):
     with open(caminho, "rb") as f:
@@ -53,21 +57,24 @@ def carregar_metricas_fold(caminho_matriz):
         return f1, topk
     except AttributeError as e:
         if "StringDtype" in str(e):
-            print(f"\n  [ERRO DE COMPATIBILIDADE] Falha ao ler {caminho_matriz}")
-            print("  Isso ocorre porque o .pkl foi gerado com uma versão diferente do Pandas.")
-            print("  SOLUÇÃO: Instale a mesma versão do Pandas que foi usada para gerar os arquivos (ex: pip install pandas==2.2.3)\n")
+            if "STRINGDTYPE_ERRO" not in _erros_ja_impressos:
+                _erros_ja_impressos.add("STRINGDTYPE_ERRO")
+                print("\n  [ERRO DE COMPATIBILIDADE DETECTADO]")
+                print("  Os arquivos .pkl foram gerados com uma versão do Pandas diferente da atual.")
+                print("  SOLUÇÃO: pip install pandas==2.2.3 (ou a versão listada no seu requirements.txt)\n")
         else:
-            print(f"  Erro ao processar {caminho_matriz}: {e}")
+            print(f"  Erro desconhecido ao processar {caminho_matriz}: {e}")
         return None
     except Exception as e:
         print(f"  Erro ao processar {caminho_matriz}: {e}")
         return None
 
 def coletar_resultados(version, tipo):
-    resultados_por_classificador = {}
+    # Estrutura: resultados[clf][balanceamento][n_splits] = métricas
+    resultados = {}
 
     for nome_clf, sufixo in CLASSIFIERS.items():
-        resultados_por_classificador[nome_clf] = {n: None for n in N_SPLITS}
+        resultados[nome_clf] = {bal: {n: None for n in N_SPLITS} for bal in BALANCEAMENTOS + ["default"]}
 
         for n_splits in N_SPLITS:
             if nome_clf == "KMeansD":
@@ -75,23 +82,24 @@ def coletar_resultados(version, tipo):
             else:
                 base_dir = os.path.join("..", nome_clf, version)
 
-            # Procura a pasta "matrizesProba..." em qualquer nível de subpasta (ex: none, ros, smote)
+            # Procura a pasta "matrizesProba..." em qualquer nível de subpasta
             search_pattern = os.path.join(base_dir, "**", f"matrizesProba_{sufixo}_treino{tipo.capitalize()}", f"{n_splits}fold")
             matching_dirs = glob.glob(search_pattern, recursive=True)
 
-            if not matching_dirs:
-                continue  # Mantém como None (N/A)
-
-            # Se encontrar múltiplas pastas (ex: none, ros, smote), ordena para priorizar a 'none' (baseline)
-            matching_dirs.sort(key=lambda x: 'none' not in x)
-
-            f1_list = []
-            topk_list = []
-
-            # Tenta ler os resultados da primeira pasta válida encontrada
             for base_matrizes in matching_dirs:
-                f1_list_temp = []
-                topk_list_temp = []
+                # Identifica qual a estratégia de balanceamento baseada no caminho da pasta
+                path_normalized = base_matrizes.replace("\\", "/")
+                if f"/none/" in path_normalized:
+                    bal = "none"
+                elif f"/ros/" in path_normalized:
+                    bal = "ros"
+                elif f"/smote/" in path_normalized:
+                    bal = "smote"
+                else:
+                    bal = "default"
+
+                f1_list = []
+                topk_list = []
 
                 for fold_id in range(1, n_splits + 1):
                     caminho_matriz = os.path.join(base_matrizes, f"matriz_{fold_id}.pkl")
@@ -101,41 +109,45 @@ def coletar_resultados(version, tipo):
                     metricas = carregar_metricas_fold(caminho_matriz)
                     if metricas is not None:
                         f1, topk = metricas
-                        f1_list_temp.append(f1)
-                        topk_list_temp.append(topk)
+                        f1_list.append(f1)
+                        topk_list.append(topk)
 
-                if len(f1_list_temp) > 0:
-                    f1_list = f1_list_temp
-                    topk_list = topk_list_temp
-                    break # Achou resultados válidos, para de procurar
+                if len(f1_list) > 0:
+                    resultados[nome_clf][bal][n_splits] = {
+                        "f1_mean": np.mean(f1_list),
+                        "f1_std": np.std(f1_list),
+                        "topk_mean": np.mean(topk_list),
+                        "topk_std": np.std(topk_list),
+                    }
 
-            if len(f1_list) > 0:
-                resultados_por_classificador[nome_clf][n_splits] = {
-                    "f1_mean": np.mean(f1_list),
-                    "f1_std": np.std(f1_list),
-                    "topk_mean": np.mean(topk_list),
-                    "topk_std": np.std(topk_list),
-                }
+    return resultados
 
-    return resultados_por_classificador
-
-def imprimir_tabela(resultados_por_classificador, version, tipo):
+def imprimir_tabela(resultados, version, tipo):
     print(f"\n#### Versão: `{version}` | Tipo: `{tipo.capitalize()}`\n")
-    print("| Classificador | 5-Fold F1 | 5-Fold Top-5 | 10-Fold F1 | 10-Fold Top-5 |")
-    print("| :--- | :--- | :--- | :--- | :--- |")
+    print("| Classificador | Balanceamento | 5-Fold F1 | 5-Fold Top-5 | 10-Fold F1 | 10-Fold Top-5 |")
+    print("| :--- | :--- | :--- | :--- | :--- | :--- |")
 
-    for nome_clf in CLASSIFIERS:  # Itera sobre todos os classificadores definidos
-        res5 = resultados_por_classificador[nome_clf].get(5)
-        res10 = resultados_por_classificador[nome_clf].get(10)
+    for nome_clf in CLASSIFIERS:
+        # Itera sobre os balanceamentos e também sobre o "default" (caso exista)
+        for bal in BALANCEAMENTOS + ["default"]:
+            res5 = resultados[nome_clf][bal].get(5)
+            res10 = resultados[nome_clf][bal].get(10)
 
-        def fmt(r, metric="f1"):
-            if r is None:
-                return "N/A"
-            if metric == "f1":
-                return f"{r['f1_mean']:.2f} ± {r['f1_std']:.2f}"
-            return f"{r['topk_mean']:.2f} ± {r['topk_std']:.2f}"
+            # Se for "default" e estiver vazio, não imprime para não poluir
+            if bal == "default" and res5 is None and res10 is None:
+                continue
 
-        print(f"| {nome_clf} | {fmt(res5, 'f1')} | {fmt(res5, 'topk')} | {fmt(res10, 'f1')} | {fmt(res10, 'topk')} |")
+            def fmt(r, metric="f1"):
+                if r is None:
+                    return "N/A"
+                if metric == "f1":
+                    return f"{r['f1_mean']:.2f} ± {r['f1_std']:.2f}"
+                return f"{r['topk_mean']:.2f} ± {r['topk_std']:.2f}"
+
+            # Formata o nome do balanceamento para ficar mais bonito
+            bal_formatado = f"`{bal}`" if bal != "default" else "*(padrão)*"
+
+            print(f"| {nome_clf} | {bal_formatado} | {fmt(res5, 'f1')} | {fmt(res5, 'topk')} | {fmt(res10, 'f1')} | {fmt(res10, 'topk')} |")
     
     print("\n")
 
