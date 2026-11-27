@@ -194,10 +194,24 @@ y_tr, y_val = y_treino.iloc[tr_idx], y_treino.iloc[val_idx]
 Os modelos são avaliados utilizando F1-Score Macro para lidar com o desbalanceamento entre as espécies e Top-K Accuracy para verificar se a espécie correta está entre as K mais prováveis.
 
 ### Desempenho dos Classificadores
-<!-- tabela de tabela_resultados.py -->
+Os resultados podem ser visualizados com o script ```tabela_resultados.py```:
+```bash
+python etc/tabela_resultados.py
+```
+Melhores resultados provisórios (```v6_perch - none```)
+| Classificador | F1-Macro ± DP | Top-5 ± DP |
+| :--- | :---: | ---: |
+| KNN | 0,00 ± 0,00 | 0,00 ± 0,00 |
+| SVM | 0,00 ± 0,00 | 0,00 ± 0,00 |
+| XGBoost | 0,00 ± 0,00 | 0,00 ± 0,00 |
+| KMeansC_NC | 0,00 ± 0,00 | 0,00 ± 0,00 |
+| KMeansC_SVM | 0,00 ± 0,00 | 0,00 ± 0,00 |
+| KMeansD | 0,00 ± 0,00 | 0,00 ± 0,00 |
 
+<!--
 ### Impacto do *Oversampling*
-<!-- ilustração do impacto do oversampling -->
+ilustração do impacto do oversampling 
+-->
 
 ## Autores
  - João Marcos Avancini - [Lattes](https://busca-cv-lattes.cnpq.br/curriculo/4080502078325312)
