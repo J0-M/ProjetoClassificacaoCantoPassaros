@@ -1,6 +1,7 @@
 import os
 import pickle
 import numpy as np
+import glob
 from sklearn.metrics import f1_score, top_k_accuracy_score
 
 
@@ -50,6 +51,14 @@ def carregar_metricas_fold(caminho_matriz):
         classes = matriz["classes"]
         f1, topk = calcular_metricas(y_true, y_proba, classes)
         return f1, topk
+    except AttributeError as e:
+        if "StringDtype" in str(e):
+            print(f"\n  [ERRO DE COMPATIBILIDADE] Falha ao ler {caminho_matriz}")
+            print("  Isso ocorre porque o .pkl foi gerado com uma versão diferente do Pandas.")
+            print("  SOLUÇÃO: Instale a mesma versão do Pandas que foi usada para gerar os arquivos (ex: pip install pandas==2.2.3)\n")
+        else:
+            print(f"  Erro ao processar {caminho_matriz}: {e}")
+        return None
     except Exception as e:
         print(f"  Erro ao processar {caminho_matriz}: {e}")
         return None
@@ -62,34 +71,43 @@ def coletar_resultados(version, tipo):
 
         for n_splits in N_SPLITS:
             if nome_clf == "KMeansD":
-                base_matrizes = os.path.join(
-                    "..", "KMeansC_SVM", version,
-                    f"matrizesProba_{sufixo}_treino{tipo.capitalize()}",
-                    f"{n_splits}fold"
-                )
+                base_dir = os.path.join("..", "KMeansC_SVM", version)
             else:
-                base_matrizes = os.path.join(
-                    "..", nome_clf, version,
-                    f"matrizesProba_{sufixo}_treino{tipo.capitalize()}",
-                    f"{n_splits}fold"
-                )
+                base_dir = os.path.join("..", nome_clf, version)
 
-            if not os.path.exists(base_matrizes):
+            # Procura a pasta "matrizesProba..." em qualquer nível de subpasta (ex: none, ros, smote)
+            search_pattern = os.path.join(base_dir, "**", f"matrizesProba_{sufixo}_treino{tipo.capitalize()}", f"{n_splits}fold")
+            matching_dirs = glob.glob(search_pattern, recursive=True)
+
+            if not matching_dirs:
                 continue  # Mantém como None (N/A)
+
+            # Se encontrar múltiplas pastas (ex: none, ros, smote), ordena para priorizar a 'none' (baseline)
+            matching_dirs.sort(key=lambda x: 'none' not in x)
 
             f1_list = []
             topk_list = []
 
-            for fold_id in range(1, n_splits + 1):
-                caminho_matriz = os.path.join(base_matrizes, f"matriz_{fold_id}.pkl")
-                if not os.path.exists(caminho_matriz):
-                    continue
+            # Tenta ler os resultados da primeira pasta válida encontrada
+            for base_matrizes in matching_dirs:
+                f1_list_temp = []
+                topk_list_temp = []
 
-                metricas = carregar_metricas_fold(caminho_matriz)
-                if metricas is not None:
-                    f1, topk = metricas
-                    f1_list.append(f1)
-                    topk_list.append(topk)
+                for fold_id in range(1, n_splits + 1):
+                    caminho_matriz = os.path.join(base_matrizes, f"matriz_{fold_id}.pkl")
+                    if not os.path.exists(caminho_matriz):
+                        continue
+
+                    metricas = carregar_metricas_fold(caminho_matriz)
+                    if metricas is not None:
+                        f1, topk = metricas
+                        f1_list_temp.append(f1)
+                        topk_list_temp.append(topk)
+
+                if len(f1_list_temp) > 0:
+                    f1_list = f1_list_temp
+                    topk_list = topk_list_temp
+                    break # Achou resultados válidos, para de procurar
 
             if len(f1_list) > 0:
                 resultados_por_classificador[nome_clf][n_splits] = {
