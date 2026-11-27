@@ -199,14 +199,20 @@ Os resultados podem ser visualizados com o script ```tabela_resultados.py```:
 python etc/tabela_resultados.py
 ```
 Melhores resultados provisórios (```v6_perch - none```)
-| Classificador | F1-Macro ± DP | Top-5 ± DP |
-| :--- | :---: | ---: |
-| KNN | 0,00 ± 0,00 | 0,00 ± 0,00 |
-| SVM | 0,00 ± 0,00 | 0,00 ± 0,00 |
-| XGBoost | 0,00 ± 0,00 | 0,00 ± 0,00 |
-| KMeansC_NC | 0,00 ± 0,00 | 0,00 ± 0,00 |
-| KMeansC_SVM | 0,00 ± 0,00 | 0,00 ± 0,00 |
-| KMeansD | 0,00 ± 0,00 | 0,00 ± 0,00 |
+| Classificador | Fold | F1-Macro ± DP | Top-5 ± DP |
+| :--- | :---: | :---: | ---: |
+| KNN | 5-Fold | 0,38 ± 0,01 | 0,78 ± 0,03 |
+| -- | 10-Fold | 0,45 ± 0,03 | 0,79 ± 0,07 |
+| SVM | 5-Fold | 0,49 ± 0,00 | 0,91 ± 0,01 |
+| -- | 10-Fold | 0,60 ± 0,02 | 0,94 ± 0,01 |
+| XGBoost | 5-Fold | 0,51 ± 0,01 | 0,94 ± 0,01 |
+| -- | 10-Fold | 0,65 ± 0,01 | 0,96 ± 0,01 |
+| KMeansC_NC | 5-Fold | 0,41 ± 0,02 | 0,84 ± 0,01 |
+| -- | 10-Fold | 0,48 ± 0,03 | 0,86 ± 0,02 |
+| KMeansC_SVM | 5-Fold | 0,43 ± 0,01 | 0,81 ± 0,01 |
+| -- | 10-Fold | 0,50 ± 0,02 | 0,82 ± 0,02 |
+| KMeansD | 5-Fold | 0,37 ± 0,01 | 0,87 ± 0,00 |
+| -- | 10-Fold | 0,48 ± 0,02 | 0,89 ± 0,01 |
 
 <!--
 ### Impacto do *Oversampling*
