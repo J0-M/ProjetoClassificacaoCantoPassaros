@@ -31,8 +31,7 @@ ProjetoClassificacaoCantoPassaros/
 ### 0. Instalação das dependências e Pré-Requisitos
   1. Instale as bibliotecas
   ```bash
-      pip install -r requirements.txt
-
+  pip install -r requirements.txt
   ```
     
   2. *Dataset* Base
@@ -46,26 +45,26 @@ Você deve escolher qual versão de features deseja gerar primeiro. O script ler
 
 #### Para Features Manuais (ex: ```v4_novas_features```):
   ```bash
-    python processamentoDataset/v4_novas_features/dataframeSegmentado.py
+  python processamentoDataset/v4_novas_features/dataframeSegmentado.py
   ```
 
   #### Para Embeddings do Perch:
   ```bash
-      python processamentoDataset/features_perch/perch.py
+  python processamentoDataset/features_perch/perch.py
   ```
       
 ### 2. Geração dos folds
 Com o dataframe gerado na etapa anterior, execute o script de geração de folds.
   
   ```bash
-    python processamentoDataset/folds/gerar_folds.py
+  python processamentoDataset/folds/gerar_folds.py
   ```
 
 ### 3. Treinamento e Avaliação dos Classificadores
 Com as features e os folds gerados, você pode rodar qualquer um dos classificadores (**ex**: *XGBoost*):
 
   ```bash
-    python XGBoost/XGBoost.py
+  python XGBoost/XGBoost.py
   ```
 
 O script é interativo, necessitando que o usuário informe:
@@ -74,6 +73,7 @@ O script é interativo, necessitando que o usuário informe:
 3. O valor de K para o Top-K Accuracy.
 
 O código carregará os folds, fará a busca de hiperparâmetros, treinará o modelo e salvará as matrizes de probabilidade na pasta respectiva do classificador.
+O script salva automaticamente as matrizes de confusão/probabilidade e os modelos treinados em formato .pkl nas pastas específicas, permitindo a análise posterior sem a necessidade de retreinar os modelos.
   
 ## Funcionamento e Metodologia
 O fluxo de execução (explicado abaixo) é padronizado para os classificadores supervisionados, garantindo uma comparação justa.
@@ -98,4 +98,19 @@ Como datasets de áudio geralmente possuem distribuição de classes desbalancea
     -->
 
 ### 3. **Estratificação por grupos**
-  <!-- falar dos folds, StratifiedGroupKFold e GrupShuffleSplit para preservar so grupos-->
+Para garantir que gravações do mesmo indivíduo ou do mesmo ambiente não estejam tanto no treino quanto no teste utilizamos o ```StratifiedGroupKFold``` agrupando pelas colunas audioSource, com ```GroupShuffleSplit``` sendo usado para separar os dados de treino e validação interna durante a busca de hiperparâmetros, mantendo a integridade dos grupos.
+<!-- trecho de codigo StratifiedGroupKFold e GrupShuffleSplit -->
+
+## Resultados 
+Os modelos são avaliados utilizando F1-Score Macro para lidar com o desbalanceamento entre as espécies e Top-K Accuracy para verificar se a espécie correta está entre as K mais prováveis.
+
+### Desempenho dos Classificadores
+<!-- tabela de tabela_resultados.py -->
+
+### Impacto do *Oversampling*
+<!-- ilustração do impacto do oversampling -->
+
+## Autores
+ - João Marcos Avancini - [Lattes](https://busca-cv-lattes.cnpq.br/curriculo/4080502078325312)
+ - Juliano Henrique Foleis - [Lattes](https://busca-cv-lattes.cnpq.br/curriculo/4404958951175349)
+ - Diego Bertolini Gonçalves - [Lattes](https://busca-cv-lattes.cnpq.br/curriculo/2264701855770284)
